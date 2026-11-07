@@ -114,12 +114,14 @@ Behaviour on success:
   300,000 ms (5 minutes)**.
 - On every authenticated request the timer is restarted and the cookie is
   re-sent, so an active session stays alive.
-- If `daqOnly` is **false** and the current system mode is not `SERVICE` (`6`),
-  it calls `SystemModel::setRequestedMode(6)` — **authentication switches the
-  boiler to SERVICE mode**. This is a real side effect, not a read-only login.
+- If `daqOnly` is **false or omitted** (the JSON default is `false`) and the
+  current system mode is not `SERVICE` (`6`), it calls
+  `SystemModel::setRequestedMode(6)` — **authentication switches the boiler to
+  SERVICE mode**. This is a real, device-wide mode change, not a read-only
+  login; see §3.
 - If `daqOnly` is **true**, it sets a **global** `daqOnly` flag on the
   `AuthenticationHandler` (offset `0x34`). In that mode the server exposes only
-  `/channels` (see §3).
+  `/channels` (see §4).
 - On failure (missing/incorrect `key`): `400`.
 
 ### 2.4 Session use
@@ -148,7 +150,9 @@ These are properties of the server, not of your connection:
 3. **`daqOnly` is a single global flag.** One client authenticating with
    `daqOnly=true` changes routing for every session on the device until a later
    `/authenticate` sets it back to false.
-4. **Authentication forces `SERVICE` mode** unless `daqOnly=true`.
+4. **Authentication forces `SERVICE` mode** unless `daqOnly=true`. Omitting
+   `daqOnly` counts as `false`. The mode is latched and normally needs a reboot
+   to clear (see §3).
 
 A client must therefore serialise authentication and treat mode changes as
 device-wide operations.
@@ -162,7 +166,8 @@ SALT=fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27
 CHALLENGE=$(curl -s "$HOST/challenge" | python3 -c 'import sys,json;print(json.load(sys.stdin)["challenge"])')
 KEY=$(printf '%s%s' "$CHALLENGE" "$SALT" | sha256sum | cut -d' ' -f1)
 
-# daqOnly=false → full API, but switches the boiler to SERVICE mode
+# daqOnly=false → full API, but switches the boiler to SERVICE mode.
+# SERVICE is latched; a reboot is normally required to return to IDLE.
 curl -i -c cookies.txt -X POST "$HOST/authenticate" \
   -H 'Content-Type: application/json' \
   -d "{\"key\":\"$KEY\",\"daqOnly\":false}"
@@ -172,7 +177,111 @@ curl -i -b cookies.txt "$HOST/info"
 
 ---
 
-## 3. Routing model
+## 3. SERVICE mode (the side effect of a full login)
+
+`SystemMode` is a **device-wide** operating mode, not a per-session or
+per-connection setting. `HvStateManager::transitionToState` (`0xa0438`) decodes
+it as:
+
+| value | name |
+|---|---|
+| 0 | `IDLE` |
+| 1 | `AUTO` |
+| 2 | `MANUAL` |
+| 3 | `ERROR_HALT` |
+| 4 | `BOILER` |
+| 5 | `CHIMNEY_SWEEPER` |
+| 6 | `SERVICE` |
+| 7 | `SOLAR` |
+
+`SERVICE` (6) is a technician/maintenance state.
+`StateManager::getCommonStateFromMode` (`0x1b1d7c`) maps it to a state whose
+display name is `ServiceMode`; its `begin()` is `ServiceModeState::begin`
+(`0x267940`), and it logs `"Neuer Modus: ServiceMode"`.
+
+### 3.1 What entry does
+
+`ServiceModeState::begin`:
+
+1. Puts the boiler module into `ModuleState::SERVICE` via
+   `KesselBase::ServiceState` (`0x14efa4` → `changeStateTo(6)`).
+2. Propagates SERVICE to every child module: `HvKessel::AblaufService`
+   (`0x43544`) calls `changeStateTo(6)` on each child.
+3. Drives all configured relays, simple motors, PWM motors and steppers to
+   their off/zero state (loops over the device provider's
+   `QVector<QSharedPointer<...>>` collections).
+4. Calls `LedControl::AblaufService` (`0xe45a4`), which deletes LED callbacks
+   and schedules the literal `"leds_off"`.
+
+`ModuleBase::Ablauf` (`0x156c90`) dispatches on module state; for state 6 it
+calls only `AblaufService`. `ModuleBase::AblaufService` is empty,
+`HvKessel::AblaufService` only re-propagates SERVICE, and
+`LedControl::AblaufService` only handles LEDs. The normal control routines
+(`AblaufWork`, `AblaufIdle`, `AblaufReady`, …) are therefore **not run**.
+
+### 3.2 Behavioural impact
+
+| Area | Effect in SERVICE |
+|---|---|
+| Heating regulation | Suspended |
+| Burner sequencing | Not run (module state is SERVICE, not WORK/READY) |
+| Pumps, fans, mixers, relays | Forced off at entry; no automatic re-energising |
+| Motors / steppers | Forced to zero/off at entry |
+| LEDs | Callbacks deleted, `"leds_off"` scheduled |
+| Manual `/devices/...` writes | Still effective; handlers call hardware setters directly and show no visible mode check |
+| Other clients | Affected: the mode is global |
+| Persistence | Written to EEPROM, but boot converts 6 → 0 |
+
+> **Safety.** `ServiceModeState::begin` does not appear to run a controlled
+> shutdown or cooldown before zeroing outputs. Entering SERVICE during active
+> combustion may stop the fan/pump abruptly. **VERIFY** hardware interlocks on a
+> cold, attended boiler before relying on this.
+
+### 3.3 Entry and exit
+
+Entry:
+
+- `POST /authenticate` with `daqOnly` **absent or `false`** → the handler calls
+  `SystemModel::setRequestedMode(6)`.
+- `DBusSystemModelAdaptor::setSystemMode` (`0xf1704`) refuses SERVICE and
+  MANUAL; its guard `if (v1 && v2 != 7) return;` lets only `SOLAR` through in
+  that group. So the DBus/UI path is not an entry point.
+
+Exit:
+
+- `ServiceModeState::end` (`0x267844`) is empty.
+- `HvStateManager::transitionToState` (`0xa0438`) latches the mode: when the
+  active mode is 6 and any other mode is requested, it calls
+  `StateManager::resetToState(6)`, i.e. it re-enters SERVICE instead of leaving.
+- No logout/session-expiry handler resets the mode.
+- Reboot is the practical exit: `InitializationState::checkPerformanceClass`
+  (`0xa0eb8`) reads the persisted mode and coerces values `3..255` except `4`
+  to `0` (`IDLE`), so persisted `6` becomes `0`.
+
+**VERIFY** on hardware that SERVICE is really reboot-only in practice and that
+no UI/update path performs a hidden transition.
+
+### 3.4 Do not confuse the two "SERVICE" names
+
+- `SystemMode::SERVICE = 6` — the plant operating mode described above.
+- `SecurityLevel::SERVICE = 0x14` (20) — a technician **authorization** level
+  granted by `SecurityManagerImpl::authorizeService` (`0x275878`) for 30 min
+  (`internalAuthorizeService` → `setSecurityLevel(0x14, 1800000)`), validated
+  against a `ddMM` date code. It gates parameter/UI operations.
+
+The port-80 login sets `daqOnly` and requests mode 6; it does not visibly call
+`authorizeService`. **VERIFY** whether web handlers reach the security level
+indirectly.
+
+### 3.5 Client rule
+
+Always send `"daqOnly": true`. Omitting `daqOnly` is not neutral — it is a
+device-wide mode change. Treat a full login as a write operation that requires
+explicit user consent.
+
+---
+
+## 4. Routing model
 
 `ServiceRequestHandler::service` evaluates routes in this order:
 
@@ -200,7 +309,7 @@ live channels and configuration must switch modes and accept the global effect.
 
 ---
 
-## 4. Endpoint reference
+## 5. Endpoint reference
 
 Unless stated otherwise:
 
@@ -212,7 +321,7 @@ Unless stated otherwise:
 - Successful device writes usually return the **new state** as JSON `200`
   (they call `handleInfo`/`writeObject`), not `204`.
 
-### 4.1 Auth and system
+### 5.1 Auth and system
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -223,7 +332,7 @@ Unless stated otherwise:
 | POST | `/info/systemid/generate` | no body → `200 {"systemId":str}`. *(Path takes precedence; method is not checked.)* |
 | GET | `/pcb` | → `200 {"internalTemperature":num,"internalVoltage":num}` |
 
-### 4.2 Parameters
+### 5.2 Parameters
 
 Parameter objects (from `ParameterBase::addJson` + `Parameter::allDataToJsonObject`)
 have this shape:
@@ -260,7 +369,7 @@ Notes:
 - Parameter values are type-dependent (`int`, `double`, `bool`, `string`,
   structured for clock ranges, etc.). The `type` field is authoritative.
 
-### 4.3 Channels (daq-only)
+### 5.3 Channels (daq-only)
 
 | Method | Path | Response |
 |---|---|---|
@@ -272,7 +381,7 @@ Notes:
   fixed compile-time list. Discover them at runtime and cache.
 - Only reachable while the global `daqOnly` flag is true.
 
-### 4.4 Devices
+### 5.4 Devices
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -309,7 +418,7 @@ Notes:
 | GET | `/devices/lambda-probe` | → `200` object incl. `state` (`OKAY`, `NOT_READY`, `NO_VALID_STATE`, `WRONG_POLARITY`, `UNKNOWN`, `INVALID`, `NOT_CONNECTED`), `current`, `setCurrentPercent`, `heatingSeconds`. |
 | POST | `/devices/lambda-probe/calibrate` | → `200 {"o2Raw","o2Correction"}`. |
 
-### 4.5 Maintenance / lifecycle
+### 5.5 Maintenance / lifecycle
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -324,7 +433,7 @@ Notes:
 
 ---
 
-## 5. Field-by-field notes for a client
+## 6. Field-by-field notes for a client
 
 - **Numbers**: channels are JSON doubles; device states mix ints and booleans.
   Accept both (`0/1`, `true/false`) where the server documents "Integer or Boolean".
@@ -341,9 +450,13 @@ Notes:
 
 ---
 
-## 6. Verification checklist for a live unit
+## 7. Verification checklist for a live unit
 
-Run these before building higher-level features:
+Run these before building higher-level features.
+
+> **SERVICE-mode checks (items 2, 7, 8):** do these on a cold, attended boiler
+> that you are prepared to power-cycle. They are mode changes, not read-only
+> tests.
 
 1. `GET /challenge` twice back-to-back → second must be `403`.
 2. Auth with `daqOnly:false` → `204`, `Set-Cookie`; `GET /info` → `200`.
@@ -352,16 +465,20 @@ Run these before building higher-level features:
 5. Sleep 6 minutes, reuse cookie → expect `401`.
 6. Make an authenticated request every 60 s for 10 min → session stays alive and
    `Set-Cookie` is refreshed with the same value.
-7. Confirm whether `/authenticate` with `daqOnly:false` changes the boiler to
-   SERVICE mode (observe the display / `/info` if it exposes mode).
-8. Confirm `GET /parameters` with a JSON body works through your HTTP client
+7. Confirm that `/authenticate` with `daqOnly:false` — and with `daqOnly`
+   **omitted** — changes the boiler to SERVICE mode (observe the display; note
+   whether pumps/fans stop). See §3.
+8. Confirm that SERVICE is latched: while in SERVICE, request another mode (if
+   you have a safe way to do so) and verify it does not leave SERVICE. Then
+   power-cycle and confirm the boiler returns to `IDLE`. See §3.3.
+9. Confirm `GET /parameters` with a JSON body works through your HTTP client
    (some libraries refuse GET bodies).
-9. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
-10. Confirm error bodies are empty and messages are only in the status line.
+10. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
+11. Confirm error bodies are empty and messages are only in the status line.
 
 ---
 
-## 7. Security assessment (for the plan)
+## 8. Security assessment (for the plan)
 
 - The "secret" used to sign challenges is a fixed string in the firmware, and
   `/challenge` is unauthenticated. Anyone who can reach port 80 can compute a
