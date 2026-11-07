@@ -151,8 +151,41 @@ These are the constraints that shape the whole design:
 
 - The salt is public; anyone with network access can authenticate.
 - No TLS, no CSRF token, no per-client authorisation.
+- The inspected HTTP scalar parameter-write chain does not compare catalog
+  `securityLevel` with caller authorization; the UI's level filter is separate.
+  Do not use `USER` or `daqOnly=true` as the client's authorization boundary.
 - Recommendation: run the boiler on an isolated management VLAN, reachable only
   from the client host, and never port-forward port 80.
+
+### 2.5 Customer parameter writes
+
+The analyzed 2.7.4 implementation supports real parameter changes through
+`POST /parameters` while authenticated with `daqOnly=true`. It looks up each
+actual parameter `name`, dispatches `updateFromJson` to the main control thread,
+runs the typed setter, emits change signals, invokes file/EEPROM save paths,
+and marks the system configured. The handler does not require or unconditionally
+request SERVICE; the explicit authentication side effect belongs to
+`daqOnly=false`. The non-GET branch also handles PUT in 2.7.4. `[CODE]`
+
+Customer-facing catalog entries include room and hot-water temperature
+setpoints, heating/loading/circulation schedules, and display settings. The
+complete table in [`boiler-http-api.md` §5.2](boiler-http-api.md#52-parameters)
+contains all 44 USER entries from the 3.4.0 sample, identifying the 39 names
+independently defined as USER by the 2.7.4 provider. Inactive entries and the
+five capture-only additions are included; none is automatically safe to write.
+
+Design consequences:
+
+- Select entries by API `name`, never by display label or channel name.
+- Send only intended `name`/`value` entries; do not round-trip the full catalog.
+- Enforce type, range, increment, and an explicit allowlist in the client.
+- Do not trust `200` alone: float JSON parsing can succeed even when the setter
+  rejects an out-of-range value. Compare returned and subsequent GET values.
+- Batches are sequential and have no rollback. Prefer one change per request
+  during validation; reconcile each entry before any retry.
+- Parameter callbacks can affect heating immediately. Persistence and physical
+  effects require controlled hardware checks; no successful live write capture
+  is recorded. `[VERIFY]`
 
 ---
 
@@ -276,8 +309,9 @@ close the gaps that would otherwise become client bugs.
   (`Parameter::allDataToJsonObject`, `ParameterBase::addJson`).
 - For each type, determine accepted write shapes and validation rules
   (`Parameter::setValue` / `handlePost`).
-- Identify `securityLevel` enforcement: does the HTTP layer enforce
-  `USER`/`PLUMBER`/`SERVICE`, or is it advisory? `[VERIFY]`
+- The 2.7.4 HTTP lookup → scalar JSON updater → setter path has no
+  security-level comparison; UI filtering is separate. Validate whether the
+  deployed version changes this behavior. `[CODE; live VERIFY pending]`
 - Identify parameters that trigger mode changes or actuator activity when
   written (search `handlePost` for `setRequestedMode` and similar).
 - Build a machine-readable catalogue (`parameters.json`) from a live
@@ -311,7 +345,8 @@ Focus on timing: `POST /authenticate` (~1 s), `/devices/mixer` PUT (~1 s),
   bodies, very large bodies, or slow clients?
 - Does it keep connections alive? What is the idle keep-alive timeout?
 - What happens on concurrent requests from one or many cookies?
-- Are partial writes possible (e.g. parameter list where one entry fails)?
+- Parameter batches are sequential with no rollback in 2.7.4. Mock partial
+  application and verify deployed behavior before enabling batch writes.
 
 ### 5.3 Tooling
 
@@ -458,7 +493,7 @@ Legend: **R** read-only, **W** actuator write, **C** configuration write,
 | 6 | `/pcb` | GET | R | 200 `{internalTemperature,internalVoltage}` | |
 | 7 | `/parameters` | GET | R | 200 all parameters | Large payload; capture once |
 | 8 | `/parameters` | GET + body | R | 200 selected | Confirm GET body survives real HTTP stack |
-| 9 | `/parameters` | POST | C | 200 updated | One bad entry? partial apply? |
+| 9 | `/parameters` | POST (PUT also dispatches in 2.7.4) | C | Read-back objects; status alone is insufficient | `daqOnly=true` is sufficient; sparse entries, non-atomic batch; float range rejection can be silent |
 | 10 | `/channels` | any | R | 200 map | Additional handler checked when `daqOnly=true`; standard routes remain available |
 | 11 | `/devices/fuse` | GET | R | 200 `{state}` | |
 | 12 | `/devices/interrupts/<name>` | GET | R | 200 `{state}`; 404 unknown | 7 names |
@@ -649,6 +684,11 @@ hvctl --host 192.0.2.10 monitor --interval 10s
 | T3 — configuration | parameters POST, EEPROM PUT, RTC PUT, info POST | disabled | allowlist + range checks + confirmation + audit |
 | T4 — destructive | factory reset, update, CAN send, calibrations, backup sync | hard-disabled | out-of-band operator procedure only |
 
+Parameter writes can remain in `daqOnly=true`; do not request SERVICE just to
+unlock `/parameters`. Assign risk by the particular setting and effect, not
+solely by catalog `securityLevel`. The USER table includes ignition and timing
+controls in the live sample, not only low-impact preferences.
+
 T4 must be **unreachable in normal code paths**, not merely warned about. Put the
 paths behind a compile/runtime flag that requires an environment variable and an
 interactive confirmation.
@@ -695,7 +735,7 @@ intent → policy check → precondition read → interlock → confirm
 | `PUT` absolute state (relais, fan, pump, mixer) | mostly yes | retry only after read-back confirms no change; max 1 |
 | Stepper move (`steps`, relative) | no | never auto-retry |
 | Stocker testrun | no | never auto-retry |
-| Parameter POST | value-set, mostly yes | verify after; retry only the failed subset |
+| Parameter POST | setting-dependent; batch is non-atomic | reconcile every value; no blind retry based on HTTP status; prefer one-entry requests |
 | EEPROM/RTC PUT | yes | retry after read-back; max 1 |
 | CAN send | no | never auto-retry |
 | Factory reset/update | no | never auto-retry |
@@ -1208,10 +1248,13 @@ another client may have flipped the flag.
 3. Is there any endpoint that reveals the current mode or `daqOnly` flag?
 4. Can two clients authenticate without invalidating each other? What happens to
    sessions on a mode flip?
-5. Does `/parameters` POST apply partially when one entry fails?
+5. Confirm deployed `/parameters` partial-batch behavior and float range
+   rejection/read-back: the 2.7.4 code allows partial application and can return
+   success without changing an out-of-range float.
 6. Which parameters are dangerous to write (mode changes, actuator tests,
    calibration)?
-7. Are `securityLevel` values enforced by the HTTP layer or advisory?
+7. Does the deployed firmware enforce parameter security levels differently
+   from 2.7.4's direct HTTP setter path, which has no level comparison?
 
 ### 16.2 Medium priority
 
