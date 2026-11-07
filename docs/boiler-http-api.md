@@ -116,6 +116,12 @@ Authentication is a challenge/response handshake that ends in an opaque session
 cookie. The signing key is derived from a **hard-coded public salt**, so this is an
 access-control handshake, not a cryptographic secret.
 
+For normal LAN clients, use `daqOnly=true`: both standard parameter routes and
+the additional `/channels` route remain available, without the authentication
+handler requesting SERVICE. Parameter writes are real controller configuration
+changes, not channel-cache edits; see §5.2. They still require a client-side
+allowlist and read-back verification.
+
 ### 2.2 `GET /challenge`
 
 Response `200 application/json`:
@@ -135,7 +141,7 @@ Response `200 application/json`:
 Request body (`application/json`):
 
 ```json
-{ "key": "<128 lowercase hex chars: SHA-512>", "daqOnly": false }
+{ "key": "<128 lowercase hex chars: SHA-512>", "daqOnly": true }
 ```
 
 Key derivation (exact, from `handleAuthenticationRequest`):
@@ -323,9 +329,11 @@ no UI/update path performs a hidden transition.
   (`internalAuthorizeService` → `setSecurityLevel(0x14, 1800000)`), validated
   against a `ddMM` date code. It gates parameter/UI operations.
 
-The port-80 login sets `daqOnly` and requests mode 6; it does not visibly call
-`authorizeService`. **VERIFY** whether web handlers reach the security level
-indirectly.
+The port-80 login sets `daqOnly` and requests mode 6 only if the flag is false
+and mode 6 is not already active; it does not call `authorizeService`. The
+inspected HTTP parameter-write path does not compare the parameter's security
+level with `SecurityManager` authorization. The level is used for UI filtering,
+but is not an HTTP write permission boundary in that path (see §5.2).
 
 ### 3.5 Client rule
 
@@ -422,7 +430,8 @@ have this shape:
 |---|---|---|
 | GET | `/parameters` | empty body → `200 {"parameters":[<parameter>, …]}` (all). |
 | GET | `/parameters` | `{"parameters":["K3","T1", …]}` → `200 {"parameters":[…]}` (selected). |
-| POST | `/parameters` | `{"parameters":[{"name":"K3","value":…}, …]}` → `200 {"parameters":[…]}` (updated values). Also marks the system configured and can change `requestedMode` side effects. `400` with a reason on unknown name / bad value. |
+| POST | `/parameters` | `{"parameters":[{"name":"4","value":20.5}, …]}` → `200 {"parameters":[…]}` (read-back objects). Runs parameter setters, invokes file/EEPROM persistence, and marks the system configured. Unknown names / malformed requests can produce `400`; a `200` is not proof that every value changed. |
+| PUT | `/parameters` | Reaches the same update handler in the analyzed 2.7.4 binary; prefer POST as the explicit update convention. **VERIFY** on other firmware versions. |
 
 Notes:
 
@@ -430,11 +439,144 @@ Notes:
   that strip GET bodies; talk to port 80 directly.
 - Parameter values are type-dependent (`int`, `double`, `bool`, `string`,
   structured for clock ranges, etc.). The `type` field is authoritative.
-- The standard route vector is checked with `daqOnly=true`, so `POST
-  /parameters` is reachable at the routing layer without requesting SERVICE.
-  This does not guarantee every parameter write will pass parameter-level
-  validation/authorization. No live parameter write has been tested; treat POST
-  as a configuration write and do not infer safety from successful GETs.
+- `name` is the wire identifier used for lookup, not `displayName` or the
+  channel name. For example, `name="4"` is the heating-circuit-1 daytime
+  room-temperature parameter displayed as `Hk1-2`.
+
+#### Parameter-write mechanism and authorization
+
+The 2.7.4 code contains a real write mechanism for customer-facing settings,
+including room-temperature setpoints, hot-water setpoints, schedules, and
+display preferences. `daqOnly=true` does not prevent these writes, and the
+parameter handler neither requires SERVICE nor unconditionally requests it.
+Individual setting changes can still affect heating operation or trigger other
+callbacks; avoiding SERVICE is not a guarantee that a write is harmless.
+
+| Evidence | Address | What the code does |
+|---|---|---|
+| `ServiceRequestHandler::service` | `0x12c524` | Falls through to standard routes when the special channel handler does not match, including with `daqOnly=true`. |
+| `ParameterHandler::handle` | `0x262f90` | GET selects the reader; every non-GET method selects `handlePost`. The method comparison and branch were checked in assembly. |
+| `ParameterHandler::handlePost` | `0x261f20` | Parses a `parameters` array, looks up entries by `name`, and dispatches their JSON update to the main control thread. |
+| `ParameterManagerImpl::getByName` | `0x16d80c` | Looks up the registered parameter without a security-level filter. |
+| Main-thread update callback | `0x261eb0` | Calls virtual slot `+0x38`; the binary's parameter vtables identify this as `updateFromJson`. |
+| Float JSON updater / setter | `0x96564` / `0x967c8` | Parses a numeric `value`, validates it, writes the stored value, and emits `ParameterBase::valueChanged` if it changes. |
+| `ParameterManagerImpl::saveAll` | `0x16d29c` | Invokes file and EEPROM save paths; the HTTP handler calls it after processing the array. Persistence errors/availability still need live verification. |
+| `SystemModel::setSystemConfigured` | `0x1b275c` | Marks the system configured. Its connected callback at `0xb2e58` records/persists the statistic, not an unconditional SERVICE request. |
+
+No comparison with the caller's security level was found in the inspected
+HTTP lookup → JSON updater → scalar setter path. In contrast,
+`ParameterManagerImpl::getParametersForCurrentLevel` (`0x16eadc`) explicitly
+filters parameters against the current level for the UI. Therefore `USER`,
+`PLUMBER`, `SERVICE`, and `DEVELOPER` should be treated as catalog/UI
+classifications, not evidence of HTTP-layer authorization. A client must enforce
+its own allowed-parameter policy. **VERIFY** enforcement and side effects in
+the deployed firmware; the analyzed executable is 2.7.4 and the live captures
+are from 3.4.0.
+
+#### Request scope and read-back requirements
+
+Send **only the entries you want to change**, not the complete catalog. A
+minimal entry consists of the actual `name` and a correctly typed `value`:
+
+```json
+{
+  "parameters": [
+    {"name": "4", "value": 20.5}
+  ]
+}
+```
+
+This is the analyzed write shape, not a recorded successful live write.
+
+- **Read back the stored value:** for floats, `updateFromJson` returns whether
+  JSON parsing succeeded and does not propagate the setter's range-validation
+  result. An out-of-range numeric value can leave the parameter unchanged while
+  still receiving `200`. The returned objects and a subsequent GET matter more
+  than the status alone.
+- **Enforce advertised increments in the client:** the float validator
+  (`0x183910`) checks the minimum/maximum, not alignment to the increment.
+- **Batches are not atomic:** entries are processed sequentially, with no
+  rollback of earlier changes if a later entry is unknown or malformed. Prefer
+  one intentional change per request during validation.
+- **Do not round-trip unrelated metadata:** the JSON updater accepts `value`
+  and the base parser can also accept `last_changed`. Copying a full GET object
+  is unnecessary and can submit stale metadata.
+- **`USER` is not a safety guarantee:** user-level ignition, schedule, time,
+  and heating settings can have immediate physical effects. No successful live
+  parameter-write capture or physical-effect validation is recorded here.
+
+#### All USER parameters: code catalog and live sample
+
+The table contains **all 44 USER entries** in
+[`captures/parameters.sample.jsonc`](../captures/parameters.sample.jsonc),
+including inactive ones. `displayName`, description, type, limits/increment,
+and active state are copied from that **3.4.0** sample (descriptions are in the
+unit's selected language). They are not assumed identical across firmware or
+configurations.
+
+The last column records independent 2.7.4 code evidence: **39 named USER
+definitions** were found in `HardcodedParameterProvider::get` (`0x60b70`), and
+all 39 names occur in the sample. The constructor's security-level argument is
+`0`, serialized as `USER` by `ParameterBase::addJson` (`0x16af74`). Parameter
+names/display names were resolved through `ParameterName::ParameterName`
+(`0x16b84c`), including binary string constants. The five **Capture only** rows
+are USER in the sample but were not identified as named USER catalog entries in
+the analyzed 2.7.4 provider; their write implementation remains **VERIFY**.
+Unnamed fallback/default objects are not catalog entries.
+
+| API `name` | `displayName` | Captured description | Type | Limits / increment | Active | 2.7.4 USER definition |
+|---|---|---|---|---|---|---|
+| `Setup1` | `E1` | Veille affichage | `BOOLEAN` | — | Yes | Yes |
+| `Setup1a` | `E1a` | Veille affichage après | `INTEGER` | 10–200 min; step 10 | Yes | Yes |
+| `Setup2` | `E2` | Aff. Accueil après | `INTEGER` | 1–100 min; step 1 | Yes | Yes |
+| `Setup3` | `E3` | Luminosité écran | `INTEGER` | 5–100 %; step 5 | Yes | Yes |
+| `Setup4` | `E4` | Langue système | `CHOICE` | — | Yes | Yes |
+| `Setup4a` | `E4a` | Chemin vers fichier langue | `TEXT` | — | Yes | Yes |
+| `Setup5` | `E5` | Régler heure | `BOOLEAN` | — | Yes | Yes |
+| `Setup6` | `E5a` | Heure | `DATETIME` | — | Yes | Yes |
+| `Setup7` | `E6` | Fus. hor. | `CHOICE` | — | Yes | Yes |
+| `Setup8` | `E7` | Aff. Accueil | `MULTIPLE_CHOICE` | — | Yes | Yes |
+| `1` | `B1-1` | Ball. 1 horl. journ. Lu-Di | `DAILY_CLOCK_RANGE` | — | Yes | Yes |
+| `1a` | `B1-1` | Ballon 1 horl. hebd. | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `2` | `B1-2` | Ballon 1 temp. consigne | `INTEGER` | 0–75 °C; step 1 | Yes | Yes |
+| `boiler1.zirk.freigabe` | `B1-3` | Ballon 1 circul. horl. jour. Lu-Di | `DAILY_CLOCK_RANGE` | — | No | Yes |
+| `HP1` | `BA-1` | Ball. A horl. journ. Lu-Di | `DAILY_CLOCK_RANGE` | — | No | Yes |
+| `HP1a` | `BA-1` | Ballon A horl. hebd. | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `HP2` | `BA-2` | Ballon A temp. consigne | `INTEGER` | 0–75 °C; step 1 | No | Yes |
+| `boilerA.zirk.freigabe` | `BA-3` | Ballon A circul. horl. jour. Lu-Di | `DAILY_CLOCK_RANGE` | — | No | Yes |
+| `3` | `Hk1-1` | Zone 1 horl. journ. Lu-Di | `DAILY_CLOCK_RANGE` | — | Yes | Yes |
+| `3a` | `Hk1-1` | Zone 1 horl. hebd. | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `4` | `Hk1-2` | Zone 1 temp. amb. jour | `FLOAT` | 0–30 °C; step 0.5 | Yes | Yes |
+| `5` | `Hk1-3` | Zone 1 temp. temp. amb. abais. | `FLOAT` | 0–30 °C; step 0.5 | Yes | Yes |
+| `6` | `Hk2-1` | Zone 2 horl. journ. Lu-Di | `DAILY_CLOCK_RANGE` | — | Yes | Yes |
+| `6a` | `Hk2-1` | Zone 2 horl. hebd. | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `7` | `Hk2-2` | Zone 2 temp. amb. jour | `FLOAT` | 0–30 °C; step 0.5 | Yes | Yes |
+| `8` | `Hk2-3` | Zone 2 temp. temp. amb. abais. | `FLOAT` | 0–30 °C; step 0.5 | Yes | Yes |
+| `HP3` | `HkA-1` | Zone A horl. journ. Lu-Di | `DAILY_CLOCK_RANGE` | — | No | Yes |
+| `HP3a` | `HkA-1` | Zone A horl. hebd. | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `HP4` | `HkA-2` | Zone A temp. amb. jour | `FLOAT` | 0–30 °C; step 0.5 | No | Yes |
+| `HP5` | `HkA-3` | Zone A temp. temp. amb. abais. | `FLOAT` | 0–30 °C; step 0.5 | No | Yes |
+| `11` | `Hk-11` | Toutes zones arrêt via temp. ext. | `INTEGER` | -20–30 °C; step 1 | Yes | Yes |
+| `12` | `Hk-12` | Toutes zones arrêt via (coupure jour) | `INTEGER` | -20–30 °C; step 1 | Yes | Yes |
+| `13` | `Hk-13` | Toutes zones arrêt via (coupure nuit) | `INTEGER` | -15–10 °C; step 1 | Yes | Yes |
+| `fws.freigabe.tagesuhr` | `FWS1-1` | FWS Dispo. Horl. jour. Lu-Di | `DAILY_CLOCK_RANGE` | — | No | Yes |
+| `fws.freigabe.wochenuhr` | `FWS1-1` | FWS Disponibilité Horl. hebdo | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `fws.auslaufSoll` | `FWS1-2` | FWS Température sortie | `INTEGER` | 45–60 °C; step 1 | No | Yes |
+| `fws.freigabe.tagesuhr.zirk` | `FWS1-5` | FWS Circul. Horl. journ. Lu-Di | `DAILY_CLOCK_RANGE` | — | No | Yes |
+| `fws.freigabe.wochenuhr.zirk` | `FWS1-5` | FWS Circul. Horl. hebdo. Lu-Di | `WEEKLY_CLOCK_RANGE` | — | No | Capture only |
+| `kessel.fremdwaerme.freigabezeit` | `Fw1` | Autoris. chal. ext. | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `kombi.freigabezeit` | `EKombi0` | Autoris. chaud. esclave | `WEEKLY_CLOCK_RANGE` | — | No | Yes |
+| `mode.remote_control.enabled` | `21b` | Autoris. télécommande | `BOOLEAN` | — | Yes | Capture only |
+| `mode.remote_control.lock_duration` | `21c` | Temps verrouill. comm. dist. | `INTEGER` | 1–1500 min; step 1 | No | Capture only |
+| `E18` | `E19` | Allum. imméd. | `BOOLEAN` | — | Yes | Capture only |
+| `Z91` | `Z91` | Heure de démarrage au plus tôt | `DATETIME` | — | Yes | Capture only |
+
+`Active` is the state at capture time, not a permission or a permanent
+property. `—` means no scalar minimum/maximum metadata was supplied; it does
+not mean unrestricted values. For choices, schedules, and dates, inspect the
+live object's structured value and metadata. Discover the current catalog
+before selecting any write allowlist; no row above is an instruction to test
+the full advertised range on a running boiler.
 
 ### 5.3 Channels (conditional route)
 
@@ -452,12 +594,11 @@ Notes:
   fixed compile-time list. Discover them at runtime and cache.
 - The special `ChannelHandler` is checked when the global `daqOnly` flag is
   true. This does not disable the standard routes in that mode.
-- `Hk1Fr35RaumTempKorr` is registered as a channel by
-  `CommonChannelProvider::getChannels` (`0xc4b0c`) / `HeizkreisBase::internalInitializeChannels`
-  (`0x145870`), not as a parameter in the 2.7.4 code examined. The captured
-  3.4.0 channel sample includes this name; the parameter sample does not.
-  Consequently, `/parameters` is not an evidenced setter for this room-control
-  value; an unknown name is rejected by the parameter handler.
+- A channel name is not a parameter name. Some observed channels are linked
+  internally to writable parameters with different wire identifiers, so the
+  lack of a setter in `/channels` does not establish that the underlying setting
+  is unwritable. Use the parameter catalog and trace the relevant setter; do
+  not submit channel names or a channel snapshot to `/parameters`.
 - The live 3.4.0 capture contains only a GET sample. POST/PUT behavior above is
   code-derived from 2.7.4, not live-tested against the 3.4.0 unit.
 
@@ -559,6 +700,10 @@ every route or prove 2.7.4 runtime behavior.
    (some libraries refuse GET bodies).
 7. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
 8. Confirm error bodies are empty and messages are only in the status line.
+9. If parameter writes are explicitly approved, validate one intended USER
+   change with `daqOnly=true`, read it back, observe its physical effect, restore
+   the prior value, and verify persistence. Test rejection and partial-batch
+   behavior against the mock first; no live write outcome is confirmed here.
 
 SERVICE-mode checks are intentionally **not** part of the read-only validation.
 Only if they are explicitly needed, perform them on a cold, attended boiler
@@ -573,6 +718,9 @@ that you are prepared to power-cycle; see §3. For routine monitoring, use
   `/challenge` is unauthenticated. Anyone who can reach port 80 can compute a
   valid `key`. **Do not expose port 80 to an untrusted network.**
 - No TLS. No CSRF token. Session cookie is the only state.
+- In the analyzed HTTP scalar parameter-write path, there is no security-level
+  authorization check beyond the session gate. Catalog `securityLevel` labels
+  and `daqOnly=true` are not a substitute for a client-side write allowlist.
 - Session idle timeout is 5 min; cookie lifetime is 24 h but the map entry is
   removed after 5 min idle.
 - Rate limiting exists only on `/challenge` (5 s).

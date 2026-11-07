@@ -34,6 +34,12 @@ guarantee; restrict `get` to documented read endpoints. `daqOnly=true` enables
 `daqOnly=false`, which requests SERVICE mode, and requires the explicit
 `--allow-service-mode` flag.
 
+The analyzed API also has a real `POST /parameters` setter reachable with
+`daqOnly=true`; it is not exposed by this GET-oriented probe. See
+[`docs/boiler-http-api.md` §5.2](docs/boiler-http-api.md#52-parameters) for the
+write path, read-back requirements, and the complete USER-parameter table.
+Catalog `USER` classification is not a guarantee that a setting is harmless.
+
 ## Firmware artifacts
 
 The vendor update archive and the extracted firmware tree are intentionally not
