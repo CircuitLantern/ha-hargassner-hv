@@ -1,0 +1,12 @@
+97c79f73ae81ee28e3db53b1f20428012057ad21e4d2c6141043b2ddeec23234  smart_hv_2.7.4.hup
+cf726634c7cd766c87c0bab47170997d44c38af9f9343f7cb990db1f49175573  smart_hv_2.7.4/data/app/bin/app
+ed37a5f6c8061785e1c6d789acf586223d17a1bd7d3ed4874122863410f50de2  smart_hv_2.7.4/data/app/bin/app.kuna.tar.xz
+49306962d01da568c523222074b2ff329d4ccc15476e80377c068ceeea38570c  smart_hv_2.7.4/data/smart-web/bin/smart-web
+d382d2c83f29e850f5f475671b07faccca54ec635c16780fc86092ca35602ca6  smart_hv_2.7.4/boot/zImage
+e6c2db272bd6c5a9ceaf7800a58e60b64aafcd38ff407bc07280520b3a01d54c  smart_hv_2.7.4/boot/u-boot.bin
+3febb1b5c5c7a150191806a4d277c15a7c4a75a6bc57e1d4262b13a38a73139d  smart_hv_2.7.4/boot/boot.bin
+d78a95283b25d3497af1bcf7ba9e473cccfd6fdfc22461a9bf7e2702edba7aab  smart_hv_2.7.4/boot/sama5d27_som1_smart_hv.dtb
+6b51abe65b9e4511cf3e773e4f7a76bd71f78208180d6a7416c624fe52ad8223  smart_hv_2.7.4/boot/uboot.env
+d7c41121c988d9aa380d789cb6696d349badd807b6eae4f98e483559e9699fb2  smart_hv_2.7.4/update.json
+5218102d1acc55d96f708cabcb71126a016f7158180e5437a1e20d823d9647c6  smart_hv_2.7.4/update.sh
+d8f1cfcd2f5d5df18fe7815653bd8523f25f2f9030e05b3763433314bb9f0433  smart_hv_2.7.4/smart-update

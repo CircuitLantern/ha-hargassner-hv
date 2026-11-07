@@ -1,0 +1,29 @@
+# Normalize text files to LF in the repository.
+* text=auto eol=lf
+
+*.py     text diff=python
+*.md     text diff=markdown
+*.json   text
+*.yml    text
+*.yaml   text
+*.toml   text
+*.cfg    text
+*.ini    text
+*.sh     text eol=lf
+Makefile text eol=lf
+
+# Binary artifacts. These are normally excluded by .gitignore; the attributes
+# keep them classified correctly if they are ever added deliberately.
+*.hup    binary
+*.xz     binary
+*.bin    binary
+*.dtb    binary
+*.img    binary
+*.so     binary
+*.so.*   binary
+*.a      binary
+*.o      binary
+
+# Generated decompilation output: keep it out of diffs and language stats.
+*.kuna/**            linguist-generated=true -diff -merge
+*.kuna.incomplete/** linguist-generated=true -diff -merge

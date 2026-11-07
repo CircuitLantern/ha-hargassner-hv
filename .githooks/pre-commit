@@ -1,0 +1,74 @@
+#!/bin/sh
+# Repository pre-commit checks.
+#
+# Enable in a clone with:
+#   git config core.hooksPath .githooks
+#
+# The checks are intentionally conservative: they stop the most common ways
+# large vendor artifacts, generated output, secrets, and broken files end up in
+# history. They are not a substitute for review.
+
+set -eu
+
+max_bytes=$((5 * 1024 * 1024))
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -n "$staged" ] || exit 0
+
+tmp=$(mktemp "${TMPDIR:-/tmp}/hv-precommit.XXXXXX")
+trap 'rm -f "$tmp"' EXIT INT TERM
+printf '%s\n' "$staged" > "$tmp"
+
+# 1. Known vendor, generated, and secret paths.
+blocked='(^|/)([^/]*\.hup|[^/]*\.kuna\.tar\.xz|.*\.kuna(\.incomplete)?/|rootfs/etc/shadow|\.env(\.[^/]*)?$|secrets/)'
+if grep -Eq "$blocked" "$tmp"; then
+    echo "pre-commit: refusing firmware, generated, or secret files:" >&2
+    grep -E "$blocked" "$tmp" | sed 's/^/  /' >&2
+    exit 1
+fi
+
+# 2. File size limit, measured on the staged blob.
+while IFS= read -r file; do
+    size=$(git cat-file -s ":$file")
+    if [ "$size" -gt "$max_bytes" ]; then
+        echo "pre-commit: $file is $size bytes (limit $max_bytes)." >&2
+        echo "            Use Git LFS or keep large artifacts out of git." >&2
+        exit 1
+    fi
+done < "$tmp"
+
+# 3. Private key material in the index.
+if git grep --cached -I -l -E 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' -- . >/dev/null 2>&1; then
+    echo "pre-commit: private key material found in the index:" >&2
+    git grep --cached -I -l -E 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' -- . | sed 's/^/  /' >&2
+    exit 1
+fi
+
+# 4. Python syntax check on the staged content (without writing bytecode).
+while IFS= read -r file; do
+    case "$file" in
+        *.py)
+            if ! git show ":$file" | python3 -c 'import sys; compile(sys.stdin.buffer.read(), sys.argv[1], "exec")' "$file"; then
+                echo "pre-commit: Python syntax error in $file" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done < "$tmp"
+
+# 5. Shell syntax check on the staged content.
+while IFS= read -r file; do
+    case "$file" in
+        *.sh)
+            if ! git show ":$file" | sh -n; then
+                echo "pre-commit: shell syntax error in $file" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done < "$tmp"
+
+# 6. Whitespace errors in the staged diff.
+git diff --cached --check
+
+exit 0
