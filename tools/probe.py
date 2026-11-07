@@ -211,7 +211,9 @@ class Boiler:
             except (ValueError, KeyError, TypeError) as exc:
                 raise ProbeError(f"unexpected challenge body: {challenge.text!r}") from exc
 
-            key = hashlib.sha256((challenge_hex + SALT).encode("ascii")).hexdigest()
+            # Qt 5.12 QCryptographicHash::Sha512 is enum value 6, which is the
+            # algorithm passed by AuthenticationHandler in this firmware.
+            key = hashlib.sha512((challenge_hex + SALT).encode("ascii")).hexdigest()
             auth = self.request(
                 "POST",
                 "/authenticate",
@@ -219,15 +221,25 @@ class Boiler:
                 timeout=max(self.timeout, 15.0),
             )
 
-            if auth.status == 204:
-                if not self.cookie:
-                    raise ProbeError(
-                        "authentication returned 204 but no auth-cookie was set"
+            set_cookie = auth.headers.get("set-cookie", "")
+            cookie_was_set = COOKIE_RE.search(set_cookie) is not None
+            if auth.status in (200, 204) and cookie_was_set:
+                if auth.status == 200:
+                    print(
+                        "warning: /authenticate returned 200 OK; the decompiled "
+                        "2.7.4 path returns 204. An auth-cookie was issued, so "
+                        "continuing; verify the firmware/API variant.",
+                        file=sys.stderr,
                     )
                 self.daq_only = daq_only
                 return
 
-            last_error = f"{auth.status} {auth.reason!r}"
+            body_state = "empty body" if not auth.raw else f"{len(auth.raw)}-byte body"
+            cookie_state = "auth-cookie present" if cookie_was_set else "no auth-cookie"
+            last_error = (
+                f"{auth.status} {auth.reason!r} ({cookie_state}, {body_state}, "
+                f"content-type={auth.headers.get('content-type', '<absent>')!r})"
+            )
             if auth.status == 400 and attempt < 2:
                 # The global challenge was probably overwritten by another client.
                 print(

@@ -11,12 +11,30 @@ Sources:
   the port-80 server; see [`smart-web.md`](smart-web.md) for its functions and
   MQTT job surface.
 
-All statements below are derived from the decompiled code. Items marked
-**VERIFY** should be confirmed against a live unit before they are relied on.
+Endpoint and implementation descriptions below are derived from the decompiled
+code. The live-validation note records observations from one LAN unit; it does
+not establish behavior for every unit or firmware version. Items marked
+**VERIFY** still need hardware confirmation before they are relied on.
 
 See also: [`client-development-plan.md`](client-development-plan.md) for the
 phased investigation, validation, and client-design plan, and
 [`../tools/probe.py`](../tools/probe.py) for a safe read-only protocol probe.
+
+### Live validation status
+
+On one LAN unit, the following read-only path was confirmed with
+`tools/probe.py`:
+
+- `GET /challenge` returned `200 application/json` with a 64-character
+  lowercase-hex `challenge`.
+- Authentication with `daqOnly=true` returned `204` and set `auth-cookie`.
+- Authenticated `GET /channels` returned `200 application/json` with a
+  non-empty channel map and refreshed `auth-cookie`.
+
+This confirms the daq-only telemetry path on that unit. The unit's firmware
+version was not independently fingerprinted during this check. No full-API
+(`daqOnly=false`) login was performed; SERVICE-mode behavior and routing
+exclusivity remain code-derived and **VERIFY**.
 
 ---
 
@@ -116,14 +134,18 @@ Response `200 application/json`:
 Request body (`application/json`):
 
 ```json
-{ "key": "<hex sha256>", "daqOnly": false }
+{ "key": "<128 lowercase hex chars: SHA-512>", "daqOnly": false }
 ```
 
 Key derivation (exact, from `handleAuthenticationRequest`):
 
 ```text
-key = lower_hex( SHA256( ASCII(challenge) || "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27" ) )
+key = lower_hex( SHA512( ASCII(challenge) || "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27" ) )
 ```
+
+`AuthenticationHandler::handleAuthenticationRequest` constructs
+`QCryptographicHash` with algorithm value `6`; in the firmware's Qt 5.12 API,
+that enum value is `Sha512` (not `Sha256`).
 
 where `challenge` is the 64-character hex string returned by `/challenge`
 (not the 32 raw bytes).
@@ -191,7 +213,7 @@ HOST=http://<boiler-ip>
 SALT=fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27
 
 CHALLENGE=$(curl -s "$HOST/challenge" | python3 -c 'import sys,json;print(json.load(sys.stdin)["challenge"])')
-KEY=$(printf '%s%s' "$CHALLENGE" "$SALT" | sha256sum | cut -d' ' -f1)
+KEY=$(printf '%s%s' "$CHALLENGE" "$SALT" | sha512sum | cut -d' ' -f1)
 
 # daqOnly=false → full API, but switches the boiler to SERVICE mode.
 # SERVICE is latched; a reboot is normally required to return to IDLE.
@@ -479,29 +501,34 @@ Notes:
 
 ## 7. Verification checklist for a live unit
 
-Run these before building higher-level features.
+### Confirmed on one unit
 
-> **SERVICE-mode checks (items 2, 7, 8):** do these on a cold, attended boiler
-> that you are prepared to power-cycle. They are mode changes, not read-only
-> tests.
+1. `GET /challenge` → `200 application/json`; the body contains a
+   64-character lowercase-hex challenge.
+2. Authenticate with `daqOnly=true` → `204` and `Set-Cookie`.
+3. Authenticated `GET /channels` → `200 application/json` with a non-empty map;
+   the response refreshes `Set-Cookie`.
 
-1. `GET /challenge` twice back-to-back → second must be `403`.
-2. Auth with `daqOnly:false` → `204`, `Set-Cookie`; `GET /info` → `200`.
-3. `GET /channels` with `daqOnly:false` → expect `404 no valid route` (VERIFY).
-4. Re-auth with `daqOnly:true` → `GET /channels` → `200`; `GET /info` → expect `404` (VERIFY).
-5. Sleep 6 minutes, reuse cookie → expect `401`.
-6. Make an authenticated request every 60 s for 10 min → session stays alive and
+These observations validate only the daq-only telemetry path. They do not prove
+that other routes are hidden in daq-only mode, nor do they validate the full API.
+
+### Remaining checks
+
+1. `GET /challenge` twice back-to-back → confirm the second is `403`.
+2. In daq-only mode, request a non-channel route and confirm it is unavailable
+   (`404` expected; **VERIFY**).
+3. Sleep 6 minutes, reuse cookie → expect `401`.
+4. Make an authenticated request every 60 s for 10 min → session stays alive and
    `Set-Cookie` is refreshed with the same value.
-7. Confirm that `/authenticate` with `daqOnly:false` — and with `daqOnly`
-   **omitted** — changes the boiler to SERVICE mode (observe the display; note
-   whether pumps/fans stop). See §3.
-8. Confirm that SERVICE is latched: while in SERVICE, request another mode (if
-   you have a safe way to do so) and verify it does not leave SERVICE. Then
-   power-cycle and confirm the boiler returns to `IDLE`. See §3.3.
-9. Confirm `GET /parameters` with a JSON body works through your HTTP client
+5. Confirm `GET /parameters` with a JSON body works through your HTTP client
    (some libraries refuse GET bodies).
-10. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
-11. Confirm error bodies are empty and messages are only in the status line.
+6. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
+7. Confirm error bodies are empty and messages are only in the status line.
+
+Full-API/SERVICE checks are intentionally **not** part of the read-only
+validation. Only if they are explicitly needed, perform them on a cold,
+attended boiler that you are prepared to power-cycle; see §3. **Do not** use
+`daqOnly=false` or omit `daqOnly` for routine channel monitoring.
 
 ---
 

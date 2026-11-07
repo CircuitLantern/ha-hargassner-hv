@@ -85,6 +85,15 @@ The highest-risk unknowns are behavioural, not cryptographic:
 
 These are resolved in Phases 1–2 before any write code is written.
 
+### Current live validation
+
+One LAN unit has confirmed `GET /challenge` returns the expected 64-hex
+challenge, `daqOnly=true` authentication succeeds with a cookie, and an
+authenticated `GET /channels` returns a non-empty JSON channel map. The firmware
+version was not independently fingerprinted during that check. No full-API
+login or SERVICE-mode test has been performed. See the confirmed/remaining
+checks in [`boiler-http-api.md`](boiler-http-api.md#7-verification-checklist-for-a-live-unit).
+
 ---
 
 ## 2. Ground truth and operating constraints
@@ -108,7 +117,7 @@ These are resolved in Phases 1–2 before any write code is written.
 ### 2.2 Authentication in one paragraph
 
 `GET /challenge` returns a 64-hex-character nonce. The client computes
-`SHA256(ascii(challenge) + SALT)` where `SALT` is the fixed 64-hex string in
+`SHA512(ascii(challenge) + SALT)` where `SALT` is the fixed 64-hex string in
 `boiler-http-api.md` §2.3, and posts `{"key": <hex digest>, "daqOnly": <bool>}`
 to `/authenticate`. Success is `204` after a ~1 s server-side sleep plus a
 `Set-Cookie: auth-cookie=<64 hex>`. The cookie maps to an idle timer of 300 s
@@ -119,12 +128,14 @@ time and the 5 s limit is global.
 
 These are the constraints that shape the whole design:
 
-1. **Login is a mode change.** `daqOnly=false` (or omitting it) requests
-   SERVICE mode: automatic control is suspended, outputs are forced off, and the
-   mode is latched until a reboot. Assume the boiler's behaviour changes while
-   the client is logged in. `[VERIFY]`
-2. **`daqOnly` is a global routing switch.** `true` → only `/channels`;
-   `false` → 24 handlers, no `/channels`. `[VERIFY]`
+1. **Login is a mode change.** Code evidence says `daqOnly=false` (or omitting
+   it) requests SERVICE mode: automatic control is suspended, outputs are forced
+   off, and the mode is latched until a reboot. This has not been tested on
+   hardware; assume the boiler's behavior changes. `[CODE; live VERIFY pending]`
+2. **`daqOnly` is a global routing switch.** Code maps `true` to the
+   `/channels`-only route and `false` to the full handler vector. A `true` login
+   and `GET /channels` work on one live unit; route exclusivity and multi-client
+   effects remain unverified. `[CODE; limited live check]`
 3. **The challenge slot is global.** Concurrent logins interfere.
 4. **There is no API to read either global flag.** The client must track what it
    set and must treat the device as single-tenant. `[VERIFY]` that `/info`
@@ -340,17 +351,19 @@ cat challenge.json
 
 # 2. Derive the key
 CHALLENGE=$(python3 -c 'import json;print(json.load(open("challenge.json"))["challenge"])')
-KEY=$(printf '%s%s' "$CHALLENGE" "$SALT" | sha256sum | cut -d' ' -f1)
+KEY=$(printf '%s%s' "$CHALLENGE" "$SALT" | sha512sum | cut -d' ' -f1)
 
-# 3. Authenticate. daqOnly=true  -> channels only (safer)
-#                  daqOnly=false -> full API, requests SERVICE mode
+# 3. Authenticate in daq-only mode (the validated read-only telemetry path)
 curl -sS -i -c cookies.txt -X POST "$HOST/authenticate" \
   -H 'Content-Type: application/json' \
-  -d "{\"key\":\"$KEY\",\"daqOnly\":false}"
+  -d "{\"key\":\"$KEY\",\"daqOnly\":true}"
 
-# 4. Use the cookie
-curl -sS -i -b cookies.txt "$HOST/info"
+# 4. Fetch channel telemetry
+curl -sS -i -b cookies.txt "$HOST/channels"
 ```
+
+Do not change the body to `"daqOnly":false` for this cookbook: the full-API
+login requests SERVICE mode. See [`boiler-http-api.md`](boiler-http-api.md#3-service-mode-the-side-effect-of-a-full-login).
 
 Notes:
 
@@ -361,9 +374,13 @@ Notes:
 - The 5 s challenge limit is global: if you get `403 wait between challenge
   requests`, wait 5 s and retry; do not hammer.
 
-### 6.3 Endpoint exercises
+### 6.3 Full-API endpoint exercises
 
-Read-only (full mode):
+These reads require full-API authentication, which requests SERVICE mode even
+though the requests below are GETs. They were **not** part of the confirmed
+daq-only live check. Do not use this as a routine monitoring recipe; only
+consider it on a cold, attended unit when the SERVICE-mode effect and recovery
+are explicitly accepted.
 
 ```bash
 curl -sS -b cookies.txt "$HOST/info"
@@ -473,7 +490,8 @@ explicitly approves; they remain `[UNKNOWN]` and are fenced off in the client.
 
 ### 6.6 Exit criteria
 
-- [ ] Auth, session expiry, keepalive and challenge cooldown verified.
+- [x] `daqOnly=true` authentication and `GET /channels` confirmed on one unit.
+- [ ] Session expiry, keepalive and challenge cooldown verified.
 - [ ] `daqOnly` exclusivity verified in both directions.
 - [ ] SERVICE-mode side effect observed and documented.
 - [ ] Every R/W row in the matrix has a real capture.
@@ -1242,15 +1260,15 @@ curl -sS -o /dev/null -w '%{http_code}\n' "$HOST/challenge"   # 403
 
 ## Appendix B — Authentication test vectors
 
-`key = SHA256(ascii(challenge) + SALT)`, lowercase hex.
+`key = SHA512(ascii(challenge) + SALT)`, lowercase hex (128 hex characters).
 
 SALT = `fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27`
 
 | Challenge | Expected key |
 |---|---|
-| `0000000000000000000000000000000000000000000000000000000000000000` | `6ea62076f7e0ab6bbf17da38778f99c3b8edd5d61fa20e45673a03e37b2a5d21` |
-| `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef` | `f1eae2d2817f57094ddb99af28bae60a9dfe679ee00293c4464d37505c0e6515` |
-| `deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef` | `e271b204e628c08998fad4fd636d22e158732daee54296f3f872869e7d7ba24a` |
+| `0000000000000000000000000000000000000000000000000000000000000000` | `a7cb08a85c66c00f574c4379c2cae8b2c5fe225ea87a4b9780edce4461282185aebd83a18eaeea52463076a3dd1bc0e19c9dc3d9d895c5debe3b2f480aeffd49` |
+| `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef` | `ac9a5d356b1160cb0e81a416bd06708d91af49d117c5b4e83a11fb9b9a5284327222a0551fa687f6c78fe8843877681ea97defe2565eaefd5be346992d013355` |
+| `deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef` | `01c8aea4cdf6520ecb91acc817bb55994133f0b84477f5d92bb7f0a058a5f379afdef2488598408599d6d6aca2551def34f84c4e414b7778ae279d4ebe68ff9a` |
 
 Python verification:
 
@@ -1258,8 +1276,8 @@ Python verification:
 import hashlib
 SALT = "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27"
 def key(challenge: str) -> str:
-    return hashlib.sha256((challenge + SALT).encode("ascii")).hexdigest()
-assert key("00" * 32) == "6ea62076f7e0ab6bbf17da38778f99c3b8edd5d61fa20e45673a03e37b2a5d21"
+    return hashlib.sha512((challenge + SALT).encode("ascii")).hexdigest()
+assert key("00" * 32) == "a7cb08a85c66c00f574c4379c2cae8b2c5fe225ea87a4b9780edce4461282185aebd83a18eaeea52463076a3dd1bc0e19c9dc3d9d895c5debe3b2f480aeffd49"
 ```
 
 ## Appendix C — Read-only probe
