@@ -47,6 +47,32 @@ phased investigation, validation, and client-design plan, and
   The message is the **HTTP reason phrase**, not a JSON body. Expect an **empty
   body** on errors (exception: the message is visible in the status line/proxies).
 
+### Protocols present in this firmware image; Modbus check
+
+The inspected `smart_hv_2.7.4` update image provides no evidence of a Modbus
+interface:
+
+- No Modbus symbols, strings, or `QModbus*` classes were found in the
+  decompiled `app`, `smart-web`, kernel image, or supplied kernel modules.
+- The `app` binary links Qt SerialBus, but the recovered call sites use its
+  **CAN** API (`QCanBus`, `QCanBusDevice`, `QCanBusFrame`). `BackendImpl::setupCan`
+  and `anonymous_namespace::startCan` set up `can0`; the firmware also includes
+  CAN device classes and `Io36` module operations over CAN.
+- The exposed `/devices/can` endpoint sends or long-polls raw CAN frames. It is
+  not a Modbus endpoint.
+- The observed network services are the QtWebApp HTTP server on TCP/80,
+  `smart-web`'s MQTT client, and the application's InfluxDB line-protocol
+  exporter. The available TCP listeners resolve to the HTTP server; no
+  Modbus/TCP listener or port 502 was identified. No Modbus RTU serial path was
+  identified either.
+
+**Conclusion:** do not assume this firmware exposes Modbus TCP or RTU. This is
+an evidence-based finding about the supplied update image, not proof that no
+separate base-rootfs service, external gateway/accessory, or other firmware
+version supports Modbus. The SoC has UART hardware, but its presence alone does
+not establish a Modbus implementation. For this image, the documented
+field-bus path is CAN; see `/devices/can` in §5.4.
+
 ### Status codes seen in the code
 
 | Code | Meaning in this API |
