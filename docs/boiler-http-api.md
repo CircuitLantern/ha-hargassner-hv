@@ -18,23 +18,24 @@ not establish behavior for every unit or firmware version. Items marked
 
 See also: [`client-development-plan.md`](client-development-plan.md) for the
 phased investigation, validation, and client-design plan, and
-[`../tools/probe.py`](../tools/probe.py) for a safe read-only protocol probe.
+[`../tools/probe.py`](../tools/probe.py) for a guarded GET-oriented probe. It
+blocks known method-agnostic mutator paths but is not a general API sandbox.
 
 ### Live validation status
 
-On one LAN unit, the following read-only path was confirmed with
-`tools/probe.py`:
+The checked-in captures include successful read-only requests made with
+`tools/probe.py` and no `--full` flag:
 
 - `GET /challenge` returned `200 application/json` with a 64-character
   lowercase-hex `challenge`.
 - Authentication with `daqOnly=true` returned `204` and set `auth-cookie`.
-- Authenticated `GET /channels` returned `200 application/json` with a
-  non-empty channel map and refreshed `auth-cookie`.
+- Authenticated `GET /channels`, `/info`, and `/parameters` returned `200`
+  `application/json`; the responses refreshed `auth-cookie`.
 
-This confirms the daq-only telemetry path on that unit. The unit's firmware
-version was not independently fingerprinted during this check. No full-API
-(`daqOnly=false`) login was performed; SERVICE-mode behavior and routing
-exclusivity remain code-derived and **VERIFY**.
+`captures/info.sample.jsonc` reports `softwareVersion: smart_hv_3.4.0`, so these
+are live observations from a 3.4.0 unit, not direct live validation of the
+2.7.4 binary analyzed below. No `daqOnly=false` login was performed; its
+SERVICE-mode side effect remains code-derived and **VERIFY** on hardware.
 
 ---
 
@@ -168,9 +169,11 @@ Behaviour on success:
   `SystemModel::setRequestedMode(6)` — **authentication switches the boiler to
   SERVICE mode**. This is a real, device-wide mode change, not a read-only
   login; see §3.
-- If `daqOnly` is **true**, it sets a **global** `daqOnly` flag on the
-  `AuthenticationHandler` (offset `0x34`). In that mode the server exposes only
-  `/channels` (see §4).
+- If `daqOnly` is **true**, it sets a **global** flag on the
+  `AuthenticationHandler` (offset `0x34`). This makes the dispatcher check the
+  special `/channels` handler before the standard route vector. A non-channel
+  path then falls through to the standard handlers; `daqOnly=true` is **not** a
+  channels-only or read-only restriction (see §4).
 - On failure (missing/incorrect `key`): `400`.
 
 ### 2.4 Session use
@@ -197,8 +200,9 @@ These are properties of the server, not of your connection:
    with `400`.
 2. **The 5 s rate limit is global.**
 3. **`daqOnly` is a single global flag.** One client authenticating with
-   `daqOnly=true` changes routing for every session on the device until a later
-   `/authenticate` sets it back to false.
+   `daqOnly=true` enables the special `/channels` dispatch for every session;
+   regular routes remain available. A later `/authenticate` with false disables
+   that channel route. These effects are device-wide.
 4. **Authentication forces `SERVICE` mode** unless `daqOnly=true`. Omitting
    `daqOnly` counts as `false`. The mode is latched and normally needs a reboot
    to clear (see §3).
@@ -215,18 +219,19 @@ SALT=fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27
 CHALLENGE=$(curl -s "$HOST/challenge" | python3 -c 'import sys,json;print(json.load(sys.stdin)["challenge"])')
 KEY=$(printf '%s%s' "$CHALLENGE" "$SALT" | sha512sum | cut -d' ' -f1)
 
-# daqOnly=false → full API, but switches the boiler to SERVICE mode.
-# SERVICE is latched; a reboot is normally required to return to IDLE.
+# daqOnly=true avoids requesting SERVICE mode. It enables /channels; standard
+# routes such as /parameters are also handled with this flag.
 curl -i -c cookies.txt -X POST "$HOST/authenticate" \
   -H 'Content-Type: application/json' \
-  -d "{\"key\":\"$KEY\",\"daqOnly\":false}"
+  -d "{\"key\":\"$KEY\",\"daqOnly\":true}"
 
-curl -i -b cookies.txt "$HOST/info"
+curl -i -b cookies.txt "$HOST/channels"
+curl -i -b cookies.txt "$HOST/parameters"
 ```
 
 ---
 
-## 3. SERVICE mode (the side effect of a full login)
+## 3. SERVICE mode (the side effect of `daqOnly=false` authentication)
 
 `SystemMode` is a **device-wide** operating mode, not a per-session or
 per-connection setting. `HvStateManager::transitionToState` (`0xa0438`) decodes
@@ -324,9 +329,12 @@ indirectly.
 
 ### 3.5 Client rule
 
-Always send `"daqOnly": true`. Omitting `daqOnly` is not neutral — it is a
-device-wide mode change. Treat a full login as a write operation that requires
-explicit user consent.
+Send `"daqOnly": true` for ordinary client sessions to avoid the SERVICE-mode
+request and to make `/channels` available. **Do not treat this flag as a
+read-only permission boundary:** standard read and write handlers remain
+routable with either setting. A client that promises read-only behavior must
+enforce that policy itself. Omitting `daqOnly` is not neutral; it defaults to
+false and requests the device-wide SERVICE mode.
 
 ---
 
@@ -336,25 +344,30 @@ explicit user consent.
 
 1. If path is `/challenge` or `/authenticate` → `AuthenticationHandler`.
 2. Else, require a valid session cookie; otherwise `401`.
-3. If the global `daqOnly` flag is set → the **only** handler is `ChannelHandler`
-   (`/channels`). Everything else is `404 no valid route`.
-4. Otherwise iterate 24 registered route handlers (below) and use the first whose
-   `canHandle(path)` matches.
-5. If none match → `404 no valid route`.
+3. If `daqOnly` is true, check `ChannelHandler` for `/channels`; if it matches,
+   dispatch it.
+4. If the path was not handled above, iterate the standard route-handler vector
+   and use the first whose `canHandle(path)` matches. This fallback runs whether
+   `daqOnly` is true or false.
+5. If no handler matches → `404 no valid route`.
 
-### Route handlers in the full-API vector
+### Standard route-handler vector
 
 `RelaisHandler`, `InterruptHandler`, `StockerHandler`, `CanHandler`,
 `UsbHandler`, `LambdaProbeHandler`, `MixerHandler`, `StepperHandler`,
 `LinearMotorHandler`, `ExhaustFanHandler`, `NiCrNiHandler`, `EEPromHandler`,
 `RtcHandler`, `PwmPumpHandler`, `PcbHandler`, `FuseHandler`, `InfoHandler`,
 `LedHandler`, `ParameterHandler`, `UpdateHandler`, `ResetHandler`,
-`BackupHandler`, `Pt1000Handler` — plus the daq-only `ChannelHandler`.
+`BackupHandler`, `Pt1000Handler`. `ChannelHandler` is a separate special route
+that is checked when `daqOnly=true`.
 
-**Consequence:** in normal (`daqOnly=false`) mode there is **no `/channels`**;
-in `daqOnly=true` mode there is **only `/channels`**. A client that needs both
-live channels and configuration must switch modes and accept the global effect.
-**VERIFY** this against hardware early — it drives the whole client design.
+**Consequence:** `daqOnly=true` makes `/channels` available **in addition to**
+the standard routes. `daqOnly=false` leaves the standard routes available but
+does not dispatch `/channels`; it also requests SERVICE during authentication.
+The flag is not an API privilege or read-only mode. The captured 3.4.0 unit
+successfully served `GET /parameters` with `daqOnly=true`; the 2.7.4 fallback
+behavior is also visible in `ServiceRequestHandler::service` (`0x12c524`) and
+the corresponding assembly.
 
 ---
 
@@ -417,18 +430,36 @@ Notes:
   that strip GET bodies; talk to port 80 directly.
 - Parameter values are type-dependent (`int`, `double`, `bool`, `string`,
   structured for clock ranges, etc.). The `type` field is authoritative.
+- The standard route vector is checked with `daqOnly=true`, so `POST
+  /parameters` is reachable at the routing layer without requesting SERVICE.
+  This does not guarantee every parameter write will pass parameter-level
+  validation/authorization. No live parameter write has been tested; treat POST
+  as a configuration write and do not infer safety from successful GETs.
 
-### 5.3 Channels (daq-only)
+### 5.3 Channels (conditional route)
 
 | Method | Path | Response |
 |---|---|---|
 | any | `/channels` | `200 {"<channelName>": <number>, …}` |
 
-- The handler has no method/path sub-check beyond `canHandle`; it always returns
-  the current exported channel map.
+- `ChannelHandler::canHandle` (`0x221b80`) matches the path, not the method.
+  `ChannelHandler::handle` (`0x221bac`) reads the current channel values,
+  builds a JSON object, and calls `RouteHandler::writeObject`; it does not read
+  the request method/body or call a channel setter. Thus GET, POST, and PUT on
+  this path dispatch the same snapshot response in the analyzed 2.7.4 code.
+  There is no channel-write operation here; a POST/PUT body is ignored.
 - Channel names are registered dynamically by `log*Daq` functions and are not a
   fixed compile-time list. Discover them at runtime and cache.
-- Only reachable while the global `daqOnly` flag is true.
+- The special `ChannelHandler` is checked when the global `daqOnly` flag is
+  true. This does not disable the standard routes in that mode.
+- `Hk1Fr35RaumTempKorr` is registered as a channel by
+  `CommonChannelProvider::getChannels` (`0xc4b0c`) / `HeizkreisBase::internalInitializeChannels`
+  (`0x145870`), not as a parameter in the 2.7.4 code examined. The captured
+  3.4.0 channel sample includes this name; the parameter sample does not.
+  Consequently, `/parameters` is not an evidenced setter for this room-control
+  value; an unknown name is rejected by the parameter handler.
+- The live 3.4.0 capture contains only a GET sample. POST/PUT behavior above is
+  code-derived from 2.7.4, not live-tested against the 3.4.0 unit.
 
 ### 5.4 Devices
 
@@ -506,29 +537,33 @@ Notes:
 1. `GET /challenge` → `200 application/json`; the body contains a
    64-character lowercase-hex challenge.
 2. Authenticate with `daqOnly=true` → `204` and `Set-Cookie`.
-3. Authenticated `GET /channels` → `200 application/json` with a non-empty map;
-   the response refreshes `Set-Cookie`.
+3. Authenticated `GET /channels`, `/info`, and `/parameters` → `200` with JSON;
+   the responses refresh `Set-Cookie`.
 
-These observations validate only the daq-only telemetry path. They do not prove
-that other routes are hidden in daq-only mode, nor do they validate the full API.
+These observations show that ordinary GET routes are available with
+`daqOnly=true` on the captured 3.4.0 unit. They do not independently validate
+every route or prove 2.7.4 runtime behavior.
 
 ### Remaining checks
 
 1. `GET /challenge` twice back-to-back → confirm the second is `403`.
-2. In daq-only mode, request a non-channel route and confirm it is unavailable
-   (`404` expected; **VERIFY**).
-3. Sleep 6 minutes, reuse cookie → expect `401`.
-4. Make an authenticated request every 60 s for 10 min → session stays alive and
+2. Confirm on a 2.7.4 unit that a non-channel route such as `GET /parameters`
+   also falls through to the standard handler vector with `daqOnly=true`.
+3. Authenticate with `daqOnly=false` and confirm `/channels` is unavailable
+   (`404` expected); perform this only if the SERVICE-mode side effect is
+   explicitly accepted.
+4. Sleep 6 minutes, reuse cookie → expect `401`.
+5. Make an authenticated request every 60 s for 10 min → session stays alive and
    `Set-Cookie` is refreshed with the same value.
-5. Confirm `GET /parameters` with a JSON body works through your HTTP client
+6. Confirm `GET /parameters` with a JSON body works through your HTTP client
    (some libraries refuse GET bodies).
-6. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
-7. Confirm error bodies are empty and messages are only in the status line.
+7. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
+8. Confirm error bodies are empty and messages are only in the status line.
 
-Full-API/SERVICE checks are intentionally **not** part of the read-only
-validation. Only if they are explicitly needed, perform them on a cold,
-attended boiler that you are prepared to power-cycle; see §3. **Do not** use
-`daqOnly=false` or omit `daqOnly` for routine channel monitoring.
+SERVICE-mode checks are intentionally **not** part of the read-only validation.
+Only if they are explicitly needed, perform them on a cold, attended boiler
+that you are prepared to power-cycle; see §3. For routine monitoring, use
+`daqOnly=true`, but apply a client-side read-only endpoint allowlist.
 
 ---
 
@@ -542,4 +577,5 @@ attended boiler that you are prepared to power-cycle; see §3. **Do not** use
   removed after 5 min idle.
 - Rate limiting exists only on `/challenge` (5 s).
 - `daqOnly` and the current challenge are global, so one client can disrupt
-  another's login and change the routing mode for everyone.
+  another's login and toggle `/channels` availability for everyone. The flag
+  does not prevent access to the standard route vector.

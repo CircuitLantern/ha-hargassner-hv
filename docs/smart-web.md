@@ -160,7 +160,7 @@ names do not by themselves prove that a request will succeed: D-Bus-side
 authorization, mode restrictions, broker ACLs, and handler validation also
 matter. For example, the main application's `DBusSystemModelAdaptor::setSystemMode`
 restricts mode requests; see the SERVICE-mode discussion in
-[`boiler-http-api.md`](boiler-http-api.md#3-service-mode-the-side-effect-of-a-full-login).
+[`boiler-http-api.md`](boiler-http-api.md#3-service-mode-the-side-effect-of-daqonlyfalse-authentication).
 
 ---
 

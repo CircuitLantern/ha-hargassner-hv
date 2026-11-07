@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Read-only probe for the Hargassner Smart HV 2.7.4 HTTP API.
 
-Defaults to ``daqOnly=true``, which makes only ``/channels`` reachable and does
-**not** request SERVICE mode.
+Defaults to ``daqOnly=true``, which avoids requesting SERVICE mode and enables
+the special ``/channels`` route. Other standard API routes remain reachable;
+this is not a server-side access restriction. HTTP GET is not always read-only,
+so the probe blocks known method-agnostic mutator paths and should only be used
+with documented read endpoints.
 
 WARNING: ``--full`` authenticates with ``daqOnly=false``. The firmware then
 calls ``SystemModel::setRequestedMode(6)`` and puts the **whole boiler** into
@@ -20,11 +23,13 @@ Examples::
 
     python3 tools/probe.py 192.0.2.10 challenge
     python3 tools/probe.py 192.0.2.10 channels
-    python3 tools/probe.py 192.0.2.10 --full --allow-service-mode get /info
-    python3 tools/probe.py 192.0.2.10 --full --allow-service-mode get /parameters
-    python3 tools/probe.py 192.0.2.10 --full --allow-service-mode get /devices/rtc
+    python3 tools/probe.py 192.0.2.10 get /info
+    python3 tools/probe.py 192.0.2.10 get /parameters
+    python3 tools/probe.py 192.0.2.10 get /devices/rtc
 
 This tool never sends POST/PUT/DELETE to anything except ``/authenticate``.
+The GET command also blocks known paths whose handler mutates state regardless
+of HTTP method (for example ``/factory-reset``).
 """
 
 from __future__ import annotations
@@ -38,11 +43,13 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 SALT = "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27"
 COOKIE_RE = re.compile(r"auth-cookie=([0-9a-fA-F]{64})")
 CHALLENGE_COOLDOWN_S = 5.0
 FULL_LOGIN_COMMANDS = {"auth", "get"}
+NON_READ_ONLY_GET_PATHS = {"/factory-reset", "/info/systemid/generate"}
 
 SERVICE_WARNING = """\
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -313,7 +320,7 @@ def cmd_auth(args: argparse.Namespace, boiler: Boiler) -> int:
     started = time.monotonic()
     boiler.authenticate(daq_only=not args.full)
     elapsed = time.monotonic() - started
-    mode = "full (SERVICE mode requested)" if args.full else "daq-only"
+    mode = "daqOnly=false (SERVICE mode requested)" if args.full else "daqOnly=true"
     print(f"authenticated in {elapsed:.2f}s; mode={mode}")
     print("session cookie acquired (value not shown)")
     if args.full:
@@ -338,6 +345,14 @@ def cmd_channels(args: argparse.Namespace, boiler: Boiler) -> int:
 
 
 def cmd_get(args: argparse.Namespace, boiler: Boiler) -> int:
+    normalized_path = unquote(urlsplit(args.path).path).rstrip("/") or "/"
+    if normalized_path in NON_READ_ONLY_GET_PATHS:
+        print(
+            f"refusing GET {args.path}: this path can change device state "
+            "regardless of HTTP method",
+            file=sys.stderr,
+        )
+        return 2
     boiler.authenticate(daq_only=not args.full)
     result = boiler.request("GET", args.path, retry=True)
     print_result(result, raw=args.raw)
@@ -349,13 +364,16 @@ def cmd_get(args: argparse.Namespace, boiler: Boiler) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only probe for the Smart HV HTTP API.",
+        description="GET-oriented probe for the Smart HV HTTP API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "DANGER: --full requests SERVICE mode on the boiler. That suspends\n"
+            "DANGER: --full sets daqOnly=false and requests SERVICE mode on the boiler.\n"
+            "That suspends\n"
             "heating control, forces outputs off, and is normally cleared only by\n"
             "a reboot. Use it deliberately, on a cold and attended boiler.\n"
-            "Default mode is daq-only, which exposes only /channels."
+            "Default daqOnly=true avoids SERVICE and enables /channels; normal\n"
+            "routes remain available. The probe sends GET only, but blocks known\n"
+            "GET-mutating paths; only use documented read endpoints."
         ),
     )
     parser.add_argument("host", help="boiler IP or hostname")
@@ -367,8 +385,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--full",
         action="store_true",
         help=(
-            "authenticate with daqOnly=false. DANGER: puts the boiler into "
-            "SERVICE mode (outputs off, latched, reboot to clear)"
+            "set daqOnly=false. DANGER: requests SERVICE mode (outputs off, "
+            "latched, reboot to clear); not required to access standard routes"
         ),
     )
     parser.add_argument(

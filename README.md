@@ -9,7 +9,7 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 |---|---|
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/client-development-plan.md` | Phased plan from firmware investigation to a safe client. |
-| `tools/probe.py` | Read-only protocol probe; daq-only by default. |
+| `tools/probe.py` | GET-oriented probe; `daqOnly=true` by default (not a server-side write restriction). |
 | `tools/re/` | Helpers for querying the Kuna decompilation export. |
 | `firmware/` | Provenance and checksums for the vendor artifacts. Binaries are not tracked. |
 
@@ -19,17 +19,20 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 # Challenge/cooldown check (no authentication)
 python3 tools/probe.py <boiler-ip> challenge
 
-# Authenticate daq-only and read the channel map
+# Authenticate without requesting SERVICE mode and read the channel map
 python3 tools/probe.py <boiler-ip> channels
 
-# Full API. This requests SERVICE mode on the boiler.
-python3 tools/probe.py <boiler-ip> --full --allow-service-mode get /info
-python3 tools/probe.py <boiler-ip> --full --allow-service-mode get /parameters
+# Standard read routes are also available without --full
+python3 tools/probe.py <boiler-ip> get /info
+python3 tools/probe.py <boiler-ip> get /parameters
 ```
 
-The probe never sends writes. Full mode requires an explicit
-`--allow-service-mode` flag because a `daqOnly=false` login calls
-`SystemModel::setRequestedMode(6)` on the device.
+The probe does not send POST/PUT/DELETE except to `/authenticate`, and blocks
+known paths that mutate regardless of method. HTTP GET alone is not a read-only
+guarantee; restrict `get` to documented read endpoints. `daqOnly=true` enables
+`/channels` but does not restrict other API routes or writes. `--full` sets
+`daqOnly=false`, which requests SERVICE mode, and requires the explicit
+`--allow-service-mode` flag.
 
 ## Firmware artifacts
 
@@ -81,7 +84,8 @@ interface.
 
 - Run the boiler on an isolated management network; never expose TCP/80 to an
   untrusted network. The auth salt is hard-coded in the firmware.
-- A full-API login can switch the boiler to SERVICE mode.
+- Authentication with `daqOnly=false` requests SERVICE mode; that value is not
+  required to access standard API routes.
 - Do not call destructive endpoints (`/factory-reset`, `/update`, CAN send,
   calibration) without a documented procedure and an operator present.
 - Reads are cheap; writes move actuators and can affect heating operation.
