@@ -7,8 +7,9 @@ Sources:
 - `data/app/bin/app` — ARM 32-bit (ARMv8, hard-float), Qt 5, dynamically linked.
 - `data/app/bin/app.kuna/` — Kuna decompilation (8,458 functions, 0 failures).
   Use `index.jsonl` to jump to a function; `app.asm` to verify critical branches.
-- `data/smart-web/bin/smart-web` — a separate DBus client. It is **not** the port-80
-  server.
+- `data/smart-web/bin/smart-web` — a separate D-Bus/MQTT client. It is **not**
+  the port-80 server; see [`smart-web.md`](smart-web.md) for its functions and
+  MQTT job surface.
 
 All statements below are derived from the decompiled code. Items marked
 **VERIFY** should be confirmed against a live unit before they are relied on.
