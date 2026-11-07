@@ -2,9 +2,19 @@
 """Read-only probe for the Hargassner Smart HV 2.7.4 HTTP API.
 
 Defaults to ``daqOnly=true``, which makes only ``/channels`` reachable and does
-not request SERVICE mode. To use the full API you must pass ``--full`` *and*
-``--allow-service-mode``: a full login calls ``setRequestedMode(6)`` on the
-boiler.
+**not** request SERVICE mode.
+
+WARNING: ``--full`` authenticates with ``daqOnly=false``. The firmware then
+calls ``SystemModel::setRequestedMode(6)`` and puts the **whole boiler** into
+SERVICE mode:
+
+  * automatic heating control is suspended;
+  * relays, pumps, fans, motors and steppers are forced off;
+  * the mode is latched -- normal mode requests cannot leave it;
+  * a reboot is normally required to return to IDLE.
+
+Use ``--full`` only on a cold, attended boiler that you are prepared to
+power-cycle. Both ``--full`` and ``--allow-service-mode`` are required.
 
 Examples::
 
@@ -32,6 +42,38 @@ from typing import Any
 SALT = "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27"
 COOKIE_RE = re.compile(r"auth-cookie=([0-9a-fA-F]{64})")
 CHALLENGE_COOLDOWN_S = 5.0
+FULL_LOGIN_COMMANDS = {"auth", "get"}
+
+SERVICE_WARNING = """\
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!  SERVICE MODE WARNING -- THIS CHANGES THE PHYSICAL BOILER
+!!
+!!  --full authenticates with daqOnly=false. The firmware then calls
+!!  SystemModel::setRequestedMode(6) and puts the WHOLE BOILER into SERVICE:
+!!
+!!    * automatic heating control is suspended
+!!    * relays, pumps, fans, motors and steppers are forced OFF
+!!    * the mode is LATCHED; normal requests cannot leave it
+!!    * a REBOOT is normally required to return to IDLE
+!!
+!!  There is no visible controlled shutdown or cooldown before outputs are
+!!  zeroed. Do not do this on a running, hot boiler.
+!!
+!!  Use --full only on a cold, attended boiler you are prepared to power-cycle.
+!!  Never use it on a customer's live system.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+"""
+
+_service_warning_printed = False
+
+
+def warn_service_mode() -> None:
+    """Print the SERVICE-mode warning once per process, to stderr."""
+    global _service_warning_printed
+    if _service_warning_printed:
+        return
+    _service_warning_printed = True
+    print(SERVICE_WARNING, file=sys.stderr)
 
 
 @dataclass
@@ -142,6 +184,8 @@ class Boiler:
     # -- auth --------------------------------------------------------------
 
     def authenticate(self, daq_only: bool) -> None:
+        if not daq_only:
+            warn_service_mode()
         last_error: str | None = None
         for attempt in range(3):
             self._respect_cooldown()
@@ -260,10 +304,21 @@ def cmd_auth(args: argparse.Namespace, boiler: Boiler) -> int:
     mode = "full (SERVICE mode requested)" if args.full else "daq-only"
     print(f"authenticated in {elapsed:.2f}s; mode={mode}")
     print("session cookie acquired (value not shown)")
+    if args.full:
+        print(
+            "WARNING: the boiler is now in SERVICE mode. It is latched; "
+            "power-cycle the boiler to return to IDLE.",
+            file=sys.stderr,
+        )
     return 0
 
 
 def cmd_channels(args: argparse.Namespace, boiler: Boiler) -> int:
+    if args.full:
+        print(
+            "note: 'channels' always authenticates daq-only; --full has no effect",
+            file=sys.stderr,
+        )
     boiler.authenticate(daq_only=True)
     result = boiler.request("GET", "/channels", retry=True)
     print_result(result, raw=args.raw)
@@ -271,13 +326,6 @@ def cmd_channels(args: argparse.Namespace, boiler: Boiler) -> int:
 
 
 def cmd_get(args: argparse.Namespace, boiler: Boiler) -> int:
-    if args.full and not args.allow_service_mode:
-        print(
-            "refusing full-mode login: pass --allow-service-mode to acknowledge "
-            "that the boiler will be switched to SERVICE mode",
-            file=sys.stderr,
-        )
-        return 2
     boiler.authenticate(daq_only=not args.full)
     result = boiler.request("GET", args.path, retry=True)
     print_result(result, raw=args.raw)
@@ -292,7 +340,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Read-only probe for the Smart HV HTTP API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Full mode requests SERVICE mode on the boiler. Use it deliberately.\n"
+            "DANGER: --full requests SERVICE mode on the boiler. That suspends\n"
+            "heating control, forces outputs off, and is normally cleared only by\n"
+            "a reboot. Use it deliberately, on a cold and attended boiler.\n"
             "Default mode is daq-only, which exposes only /channels."
         ),
     )
@@ -304,12 +354,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--full",
         action="store_true",
-        help="authenticate with daqOnly=false (full API; requests SERVICE mode)",
+        help=(
+            "authenticate with daqOnly=false. DANGER: puts the boiler into "
+            "SERVICE mode (outputs off, latched, reboot to clear)"
+        ),
     )
     parser.add_argument(
         "--allow-service-mode",
         action="store_true",
-        help="required with --full to confirm the SERVICE-mode side effect",
+        help=(
+            "required with --full; confirms you accept the SERVICE-mode side "
+            "effect and the reboot normally needed to undo it"
+        ),
     )
     parser.add_argument("--raw", action="store_true", help="print bodies unformatted")
 
@@ -330,12 +386,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.full and not args.allow_service_mode and args.command != "challenge":
-        print(
-            "warning: --full requests SERVICE mode; pass --allow-service-mode to proceed",
-            file=sys.stderr,
-        )
-        return 2
+    if args.full and args.command in FULL_LOGIN_COMMANDS:
+        warn_service_mode()
+        if not args.allow_service_mode:
+            print(
+                "refusing full-mode login: --full switches the boiler to SERVICE "
+                "mode and normally requires a reboot to undo.\n"
+                "Re-run with --allow-service-mode only after reading the warning "
+                "above and confirming the boiler is cold and attended.",
+                file=sys.stderr,
+            )
+            return 2
 
     boiler = Boiler(args.host, args.port, args.timeout)
     commands = {
