@@ -119,8 +119,10 @@ time and the 5 s limit is global.
 
 These are the constraints that shape the whole design:
 
-1. **Login is a mode change.** `daqOnly=false` requests SERVICE mode. Assume the
-   boiler's behaviour changes while the client is logged in. `[VERIFY]`
+1. **Login is a mode change.** `daqOnly=false` (or omitting it) requests
+   SERVICE mode: automatic control is suspended, outputs are forced off, and the
+   mode is latched until a reboot. Assume the boiler's behaviour changes while
+   the client is logged in. `[VERIFY]`
 2. **`daqOnly` is a global routing switch.** `true` → only `/channels`;
    `false` → 24 handlers, no `/channels`. `[VERIFY]`
 3. **The challenge slot is global.** Concurrent logins interfere.
@@ -184,8 +186,10 @@ make every experiment reproducible.
   `POST /devices/lambda-probe/calibrate`.
 - Before the first full-API login, capture the current display/state and tell the
   operator that the boiler may enter SERVICE mode.
-- Know the recovery path for SERVICE mode: usually leaving the service screen on
-  the device or a reboot. Document it before you need it. `[VERIFY]`
+- Know the recovery path for SERVICE mode: code evidence says the mode is
+  **latched** (`HvStateManager::transitionToState` re-enters mode 6) and a
+  **reboot** is the practical exit. Leaving the service screen is not confirmed
+  to clear it. Document the procedure before you need it. `[VERIFY]`
 
 ### 4.4 Development environment
 
@@ -244,7 +248,9 @@ close the gaps that would otherwise become client bugs.
   `/challenge`, or only authenticated ones?
 - Confirm what happens to existing sessions when `daqOnly` flips.
 - Inspect `SystemModel::setRequestedMode` and the mode enum; identify all modes
-  and whether SERVICE can be left via the API.
+  and whether SERVICE can be left via the API. Code evidence: it cannot —
+  `HvStateManager::transitionToState` latches mode 6 and `ServiceModeState::end`
+  is empty; a reboot is required. `[VERIFY]`
 
 #### 5.2.3 Parameter system
 
@@ -779,8 +785,9 @@ empty allowlist, or `allow_service_mode: false` with `mode: full`).
   (LED, mixer, one relay) and one T3 parameter change, then restore.
 - **Failure drills:** unplug network mid-write, kill the client mid-session,
   simulate a slow server.
-- **Recovery:** verify SERVICE mode exits and the boiler returns to normal
-  heating control.
+- **Recovery:** verify SERVICE mode exits via reboot (code suggests it is
+  latched and cannot be left through the API) and the boiler returns to normal
+  heating control. `[VERIFY]`
 
 ### 11.2 Acceptance criteria
 
