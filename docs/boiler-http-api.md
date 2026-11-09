@@ -20,6 +20,8 @@ See also: [`client-development-plan.md`](client-development-plan.md) for the
 phased investigation, validation, and client-design plan, and
 [`../tools/probe.py`](../tools/probe.py) for a guarded GET-oriented probe. It
 blocks known method-agnostic mutator paths but is not a general API sandbox.
+For English meanings, hydraulic context, and a crosswalk to the German service
+and electrical manuals, see [`parameter-guide.md`](parameter-guide.md).
 
 ### Live validation status
 
@@ -403,6 +405,10 @@ Unless stated otherwise:
 | GET | `/pcb` | → `200 {"internalTemperature":num,"internalVoltage":num}` |
 
 ### 5.2 Parameters
+
+The [English parameter guide](parameter-guide.md) explains the settings and
+their dependencies using the manuals. This section documents wire formats,
+setter behavior, and captured metadata; menu numbers are not always API names.
 
 Parameter objects (from `ParameterBase::addJson` + `Parameter::allDataToJsonObject`)
 have this shape:

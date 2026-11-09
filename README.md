@@ -8,6 +8,7 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 | Path | Purpose |
 |---|---|
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
+| `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
 | `tools/probe.py` | GET-oriented probe; `daqOnly=true` by default (not a server-side write restriction). |
 | `tools/re/` | Helpers for querying the Kuna decompilation export. |
