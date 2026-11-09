@@ -4,7 +4,7 @@ Status: scoped plan, not an implemented client or integration.
 
 - Protocol reference: [`boiler-http-api.md`](boiler-http-api.md).
 - Code-analysis baseline: `smart_hv_2.7.4`, ARM 32-bit Qt 5 application.
-- Live read baseline: `smart_hv_3.4.0`, as reported in the checked-in captures.
+- Live read baseline: `smart_hv_3.4.0`, as reported in the local captures.
 - Transport: local `http://<boiler>:80/`; no cloud dependency or TLS at the boiler.
 - Final consumer: **Home Assistant**.
 
@@ -134,12 +134,16 @@ Avoid duplicating the full endpoint matrix from the protocol reference here.
       confirmed on the captured 3.4.0 unit.
 - [x] The 2.7.4 parameter write chain, standard-route fallback, and USER catalog
       traced through code; version boundaries recorded.
+- [x] One operator-approved zone-1 daytime target round trip, 20.5 → 21.0 →
+      20.5 °C, verified through POST responses and separate GETs with
+      `daqOnly=true`; see the [live record](parameter-setter.md#live-validation--2026-11-09).
 - [ ] Idle expiration, cookie refresh, cooldown, and bounded recovery validated
       against the deployed unit.
 - [ ] Library packaging and async contract tests implemented.
 - [ ] Home Assistant config flow, coordinators, entities, and lifecycle tested.
 - [ ] Selected live parameter writes validated with physical observation and
-      read-back; no successful write capture is currently recorded.
+      read-back; the narrow round trip establishes stored-value read-back only,
+      not physical effects, reboot persistence, or other controls.
 
 ## 4. Independent library design
 
@@ -373,6 +377,9 @@ external caller choice, not a library storage feature.
 
 `tools/probe.py` remains investigation tooling. It is not the production library
 and should not be imported by the integration.
+The separate [guarded numeric setter](parameter-setter.md) is also investigation
+tooling: it reuses the probe, not the proposed async library. Its offline contract
+tests do not complete the guarded-write phase or validate live physical effects.
 
 ## 7. Suggested layout and release boundary
 

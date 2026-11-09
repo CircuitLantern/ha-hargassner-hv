@@ -11,6 +11,7 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
 | `tools/probe.py` | GET-oriented probe; `daqOnly=true` by default (not a server-side write restriction). |
+| `tools/set_parameter.py` | Guarded one-parameter numeric setter; preview by default, always `daqOnly=true`, verified read-back, no write replay. |
 | `tools/re/` | Helpers for querying the Kuna decompilation export. |
 | `firmware/` | Provenance and checksums for the vendor artifacts. Binaries are not tracked. |
 
@@ -40,6 +41,24 @@ The analyzed API also has a real `POST /parameters` setter reachable with
 [`docs/boiler-http-api.md` §5.2](docs/boiler-http-api.md#52-parameters) for the
 write path, read-back requirements, and the complete USER-parameter table.
 Catalog `USER` classification is not a guarantee that a setting is harmless.
+
+For an intentional numeric change, use the separate guarded setter:
+
+```bash
+# Preview and validate a circuit-1 room target; no parameter write
+python3 tools/set_parameter.py <boiler-ip> 4 21
+
+# Apply only if the preview's current value was 20.5 and this change is intended
+python3 tools/set_parameter.py <boiler-ip> 4 21 --apply --expect 20.5
+```
+
+The setter has an explicit 11-name numeric allowlist and no SERVICE-mode option
+or fallback. It refuses inactive settings, validates live type/range/increment,
+and sends at most one update before a separate read-back. See
+[`docs/parameter-setter.md`](docs/parameter-setter.md) for supported names,
+exit codes, and the limits of verification. Example values are not recommendations.
+
+Offline tool tests: `python3 -B -m unittest discover -s tests -v`.
 
 ## Firmware artifacts
 

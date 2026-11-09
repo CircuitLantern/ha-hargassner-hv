@@ -25,7 +25,7 @@ and electrical manuals, see [`parameter-guide.md`](parameter-guide.md).
 
 ### Live validation status
 
-The checked-in captures include successful read-only requests made with
+The local captures include successful read-only requests made with
 `tools/probe.py` and no `--full` flag:
 
 - `GET /challenge` returned `200 application/json` with a 64-character
@@ -38,6 +38,16 @@ The checked-in captures include successful read-only requests made with
 are live observations from a 3.4.0 unit, not direct live validation of the
 2.7.4 binary analyzed below. No `daqOnly=false` login was performed; its
 SERVICE-mode side effect remains code-derived and **VERIFY** on hardware.
+
+On 2026-11-09, an operator-approved test with `tools/set_parameter.py` changed
+the zone-1 daytime target (`name="4"`) from **20.5 → 21.0 → 20.5 °C**. Both
+parameter POSTs returned HTTP 200 with the requested value, and each separate
+GET read-back matched. All logins explicitly used `daqOnly=true`; no SERVICE
+request was sent. The original value was restored. The unit had previously
+reported 3.4.0; identity/version was not re-read during this test. See the
+[live validation record](parameter-setter.md#live-validation--2026-11-09) for
+the scope and limitations: physical effects and reboot persistence remain
+**VERIFY**, as do writes to other parameters/firmware versions.
 
 ---
 
@@ -492,7 +502,13 @@ minimal entry consists of the actual `name` and a correctly typed `value`:
 }
 ```
 
-This is the analyzed write shape, not a recorded successful live write.
+This shape was traced in 2.7.4 and subsequently exercised for `name="4"` in
+the limited [live round-trip test](parameter-setter.md#live-validation--2026-11-09).
+
+For a restricted one-shot implementation, see the
+[guarded parameter setter](parameter-setter.md). It previews by default, always
+authenticates with `daqOnly=true`, and permits only reviewed numeric names. Its
+offline tests do not establish live write compatibility or physical effects.
 
 - **Read back the stored value:** for floats, `updateFromJson` returns whether
   JSON parsing succeeded and does not propagate the setter's range-validation
@@ -508,8 +524,8 @@ This is the analyzed write shape, not a recorded successful live write.
   and the base parser can also accept `last_changed`. Copying a full GET object
   is unnecessary and can submit stale metadata.
 - **`USER` is not a safety guarantee:** user-level ignition, schedule, time,
-  and heating settings can have immediate physical effects. No successful live
-  parameter-write capture or physical-effect validation is recorded here.
+  and heating settings can have immediate physical effects. The successful live
+  target/read-back test does not validate other USER writes or physical effects.
 
 #### All USER parameters: code catalog and live sample
 
@@ -702,14 +718,16 @@ every route or prove 2.7.4 runtime behavior.
 4. Sleep 6 minutes, reuse cookie → expect `401`.
 5. Make an authenticated request every 60 s for 10 min → session stays alive and
    `Set-Cookie` is refreshed with the same value.
-6. Confirm `GET /parameters` with a JSON body works through your HTTP client
-   (some libraries refuse GET bodies).
+6. Confirm `GET /parameters` with a JSON body works through any additional HTTP
+   clients/proxies (some refuse/strip GET bodies). The guarded setter's selected
+   GET for `name="4"` worked in the live test.
 7. Confirm `GET /devices/can` blocks for ~5 s and returns `204` with no frame.
 8. Confirm error bodies are empty and messages are only in the status line.
 9. If parameter writes are explicitly approved, validate one intended USER
    change with `daqOnly=true`, read it back, observe its physical effect, restore
    the prior value, and verify persistence. Test rejection and partial-batch
-   behavior against the mock first; no live write outcome is confirmed here.
+   behavior against the mock first. The zone-1 target round trip confirmed
+   immediate write/read-back and restoration, not physical effects or persistence.
 
 SERVICE-mode checks are intentionally **not** part of the read-only validation.
 Only if they are explicitly needed, perform them on a cold, attended boiler
