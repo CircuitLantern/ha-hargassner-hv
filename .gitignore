@@ -13,6 +13,9 @@
 *.kuna.incomplete/
 *.kuna.tar.xz
 
+# Vendor reference manuals: local inputs, not tracked source.
+/manuals/**/*.[pP][dD][fF]
+
 # ---------------------------------------------------------------------------
 # Local test, capture, and runtime output
 # ---------------------------------------------------------------------------
