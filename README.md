@@ -17,6 +17,7 @@ observations from a 3.4.0 unit.
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
+| `tests/test_library_live.py` | Opt-in hardware smoke test: reads and previews only, with extra request guards; skipped by default. |
 | `tools/probe.py` | GET-oriented probe; `daqOnly=true` by default (not a server-side write restriction). |
 | `tools/set_parameter.py` | Guarded one-parameter numeric setter; preview by default, always `daqOnly=true`, verified read-back, no write replay. |
 | `tools/re/` | Helpers for querying the Kuna decompilation export. |
@@ -83,8 +84,47 @@ Validators use those same policy objects; live eligibility is checked separately
 Full offline suite (synthetic data and loopback HTTP servers, no boiler access):
 
 ```bash
-.venv/bin/python -B -m unittest discover -s tests -v
+HVCLIENT_LIVE=0 .venv/bin/python -B -m unittest discover -s tests -v
 ```
+
+### Optional live smoke test
+
+Run only against a boiler you administer, with its host explicitly supplied:
+
+```bash
+HVCLIENT_LIVE=1 HVCLIENT_LIVE_HOST=boiler.example \
+  .venv/bin/python -B -m unittest tests.test_library_live -v
+```
+
+Replace `boiler.example` with the boiler's bare hostname/IP (HTTP port 80).
+There is **no default address**. Without `HVCLIENT_LIVE=1`, hardware discovery
+skips before creating a session; explicitly enabling it without a host fails.
+Run this one test manually and serially, not alongside other live clients.
+CI and pytest-xdist workers are refused before network activity.
+
+It reads info, channels, PCB diagnostics, and supported parameters, then uses
+current-value previews for representative active temperatures, slopes, and
+circuit modes/programs. It discovers the selected profile rather than assuming
+radiators, underfloor heating, or daily/weekly scheduling. Optional absent
+controls are not previewed. It also checks refusal of the inactive program,
+public limits, and unchanged selected values on a separate read. No fixed
+firmware version, channel count, or installation setting is asserted.
+
+**No parameter writes are permitted**, including no-op setter calls. A test-only
+request guard checks authentication bodies for `daqOnly=true` and blocks other
+POSTs; an additional transport guard pins the destination and exact method/path
+allowlist. Only authentication may POST. `daqOnly=true` is **not** a server-side
+read-only permission. Requests use bounded timeouts/authentication attempts and
+never change global scheduling, circuit type, limits, or operating mode.
+
+The test prints no response documents, identifiers, schedules, challenges, or
+cookies, and writes no captures. Failures report the phase and exception type
+without device details. Do not use traceback-local dumps (`--showlocals`),
+debuggers, or HTTP debug logging when collecting output for publication.
+Concurrent UI/client changes or one-time mode transitions can fail the final
+comparison legitimately: inspect the controller, **do not automatically retry,
+restore, or re-arm anything**. A pass validates reads/previews only, not actual
+writes, physical heating effects, or reboot persistence.
 
 ## Research tools
 

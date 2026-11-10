@@ -171,8 +171,12 @@ Avoid duplicating the full endpoint matrix from the protocol reference here.
       objects and offline lookup. Validators and serializers share the same
       policy records; live eligibility remains a separate check, not an inferred
       capability advertised by the controller.
-- [ ] The new async library validated against the deployed unit; the earlier
-      live round trip exercised the research setter, not this implementation.
+- [x] Library reads and previews smoke-tested against a unit reporting 3.4.0;
+      selected values unchanged on reread, zero parameter POSTs, authentication
+      explicitly `daqOnly=true`. Opt-in hardware test added with default skip,
+      explicit target, serial execution, privacy protection, and request guards.
+- [ ] Library write implementation validated against the deployed unit; the
+      earlier live round trip exercised the research setter, not this implementation.
 - [ ] Home Assistant config flow, coordinators, entities, and lifecycle tested.
 - [ ] Selected live parameter writes validated with physical observation and
       read-back; the narrow round trip establishes stored-value read-back only,
