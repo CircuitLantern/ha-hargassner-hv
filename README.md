@@ -2,8 +2,10 @@
 
 Reverse-engineering notes and tooling for the HTTP service exposed on TCP/80 by
 the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
-The independent async Python library supports **USER parameters** plus read-only
-**channels, device info, and PCB diagnostics**. The protocol notes also distinguish
+The independent async Python library supports **USER parameters**, six reviewed
+**heating-curve slope** and three **circuit-mode exceptions**, and read-only
+**channels, device info, and PCB diagnostics**.
+The protocol notes also distinguish
 observations from a 3.4.0 unit.
 
 ## Contents
@@ -49,13 +51,34 @@ async def read_snapshots(host):
 ```
 
 The library always sends `daqOnly=true` and exposes no mode/level override or
-arbitrary endpoint tunnel. Parameter reads return USER entries only, including
-inactive entries. Channels, info, and PCB are strictly GET-only, with typed
+arbitrary endpoint tunnel. Parameter reads return USER entries plus six PLUMBER
+slopes and three DEVELOPER circuit modes, including hidden/inactive entries.
+Channels, info, and PCB are strictly GET-only, with typed
 immutable snapshots; identity mutation and all other device routes remain blocked.
-Writes are denied by default; enabling a subset of 11 reviewed numeric names
-requires an explicit `WritePolicy`. The CLI calls the same library, and applying
+Writes are denied by default; enabling a subset of 11 USER temperatures, six
+dimensionless slopes, three circuit modes, and six daily/weekly circuit programs
+requires an explicit `WritePolicy`.
+Curve/mode writes require an expected current value and validated circuit
+configuration. Slopes require the correct active/inactive pair; mode choices
+are checked against the exact hidden DEVELOPER contract and IDs 0–5, never a
+whole-boiler/SERVICE mode. No other higher-level writes are enabled.
+Program writes require the expected full program and matching active daily/
+weekly selection. `DailySchedule`, `WeeklySchedule`, `TimeRange`, `WeeklyTimeRanges`,
+and `Weekday` express comfort windows. The controller's global daily/weekly
+setting D9 and circuit operating mode are never implicitly changed.
+The CLI calls the same library, and applying
 a write requires both `--apply` and `--expect`. See the
 [library reference](docs/library.md) for examples and safety limitations.
+Circuit-mode parameters also expose reviewed English `.meaning` metadata
+(`zone`, `purpose`, `label`, `description`). The public `CIRCUIT_MODE_PARAMETERS`
+registry resolves controller zones `"1"`, `"2"`, and `"A"` to their API names,
+so consumers need not hard-code `A1z`/`A11z`/`A61z` or parse localized labels.
+`CIRCUIT_SCHEDULE_PARAMETERS["1"].daily`/`.weekly` similarly resolve heating
+programs (`3`/`3a`, `6`/`6a`, `HP3`/`HP3a`), with English `comfort_schedule` meanings.
+Their `.limits` and returned `Parameter.schedule_limits` expose immutable
+`ScheduleLimits` for group/window counts, weekday coverage, time bounds/resolution,
+overlap/overnight rules, replacement requirements, and serialization slots.
+Validators use those same policy objects; live eligibility is checked separately.
 
 Full offline suite (synthetic data and loopback HTTP servers, no boiler access):
 

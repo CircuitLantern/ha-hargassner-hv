@@ -1,9 +1,10 @@
 # Development plan — reusable Hargassner client and Home Assistant integration
 
 Status: the independent async library and thin testing CLI support **USER
-parameters plus read-only channels, device info, and PCB diagnostics**. Home
+parameters, six heating-curve slope and three circuit-mode exceptions, and read-only channels,
+device info, and PCB diagnostics**. Home
 Assistant integration and the wider roadmap below remain planned. See the
-[implemented API](library.md). Installer-level parameters, identity mutation,
+[implemented API](library.md). Other installer-level parameters, identity mutation,
 and other device routes are not part of the current delivery.
 
 - Protocol reference: [`boiler-http-api.md`](boiler-http-api.md).
@@ -17,8 +18,9 @@ and other device routes are not part of the current delivery.
 Build a small reusable Python library for the boiler HTTP API, then a separate
 Home Assistant integration that uses that library. An optional thin CLI helps
 exercise the library outside Home Assistant; it is not a standalone application.
-The current implementation supports USER parameter reads and opt-in reviewed
-numeric writes, plus exact GET reads of `/channels`, `/info`, and `/pcb`. It
+The current implementation supports USER parameter reads, six PLUMBER slopes,
+three DEVELOPER circuit-mode choices, and opt-in reviewed writes, plus exact
+GET reads of `/channels`, `/info`, and `/pcb`. It
 exposes no higher-level parameter catalog option, identity writes, or arbitrary
 hardware/endpoint operations.
 
@@ -151,6 +153,24 @@ Avoid duplicating the full endpoint matrix from the protocol reference here.
       and async contract/lifecycle tests implemented with loopback mock servers.
 - [x] Read-only channel, system-info, and PCB methods/CLI commands implemented
       with shared authentication/recovery, immutable models, and loopback tests.
+- [x] Six heating-curve slope exceptions implemented with explicit policies,
+      profile-context validation, mandatory expected values, and offline tests;
+      no general installer access or live curve validation is implied.
+- [x] Three deliberately hidden circuit-mode exceptions implemented with integer/
+      enum IDs, correct object/ID serialization, circuit-context checks, mandatory
+      expected IDs, and offline tests; no general inactive/DEVELOPER access or
+      live mode validation is implied.
+- [x] Immutable English circuit-mode meanings exposed through a public zone-keyed
+      registry, offline name lookup, and `Parameter.meaning`, separately from
+      localized firmware descriptions and without changing wire JSON/permissions.
+- [x] Six USER circuit program writers implemented with daily/weekly value
+      objects, verified weekday IDs, strict time/window validation, complete
+      replacement/expected checks, circuit/peer/D9 context, and offline tests.
+      Global scheduling selection and circuit mode are never changed implicitly.
+- [x] Public immutable `ScheduleLimits` exposed through program/value/parameter
+      objects and offline lookup. Validators and serializers share the same
+      policy records; live eligibility remains a separate check, not an inferred
+      capability advertised by the controller.
 - [ ] The new async library validated against the deployed unit; the earlier
       live round trip exercised the research setter, not this implementation.
 - [ ] Home Assistant config flow, coordinators, entities, and lifecycle tested.
@@ -173,7 +193,7 @@ AsyncHargassnerClient(host, port=80, session=None, write_policy=deny_all)
   async_get_channels()                                # read-only snapshot
   async_get_info()                                    # read-only identity/version
   async_get_pcb()                                     # read-only board diagnostics
-  async_get_parameters(names=None)                     # USER only
+  async_get_parameters(names=None)                     # USER + six slopes + three modes
   async_get_parameter(name)
   async_preview_parameter_write(name, value, expected=...)  # no POST
   async_set_parameter(name, value, expected=...)        # opt-in and verified
@@ -184,10 +204,19 @@ Channel snapshots expose dynamic numeric names without inferred units or enum
 meanings. System info includes optional identity/version strings and must be
 redacted before publishing diagnostics. PCB snapshots expose both numeric board
 readings. Only exact GET roots are supported; identity writes and the mutating
-`/info/systemid/generate` subpath remain blocked. Parameter reads stay USER-only;
+`/info/systemid/generate` subpath remain blocked. Parameter reads are limited to
+USER plus six PLUMBER slopes and three DEVELOPER circuit modes;
 schedules, choices, booleans, text, and raw controller date/time components are
-readable. Writes require a subset of 11 reviewed numeric names. Higher parameter
-levels and structured writes are still out of scope.
+readable. Writes require a subset of 11 USER temperatures, six dimensionless
+slopes, three mode choices, and six circuit programs. Slopes require live profile/peer/selector checks;
+modes require a configured circuit, the exact hidden-choice contract, and IDs
+0–5. Both require expected values. Mode IDs are separate from boiler-wide modes
+and do not include SERVICE. Type selectors are internal read-only context, not public
+catalog entries or writable controls. Other higher-level parameters and
+other structured writes are still out of scope. Programs use daily/weekly
+array serializers with full expected values and read-only D9 selection context;
+weekly programs require the controller already in weekly mode. No implicit
+global scheduling or operating-mode switch is made.
 
 - Library initialization must not perform network I/O or authenticate with a
   false/missing `daqOnly` flag.
@@ -396,6 +425,7 @@ hvctl <boiler-ip> set <allowed-name> <value> --apply --expect <current>
 ```
 
 The testing setter exercises the library's guarded numeric implementation; it
+also supports the three explicit circuit-mode choice exceptions. It
 does not complete hardware/physical-effect validation or enable Home Assistant
 controls. It requires an explicitly permitted name and remains in `daqOnly=true`.
 It prints the verified result or a clear unknown/mismatched outcome and never
