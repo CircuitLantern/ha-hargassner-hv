@@ -1,0 +1,13 @@
+{
+  "domain": "hargassner_hv",
+  "name": "Hargassner Smart HV",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://example.invalid/hargassner-hv",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://example.invalid/hargassner-hv/issues",
+  "loggers": ["hvclient"],
+  "requirements": ["hargassner-hvclient==0.1.0"],
+  "version": "0.1.0"
+}

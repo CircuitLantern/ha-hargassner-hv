@@ -1,0 +1,80 @@
+{
+  "title": "Hargassner Smart HV",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to a Smart HV controller",
+        "description": "Connect over the trusted LAN. Setup only reads; writes are disabled until explicitly selected in options. Supported calls were curated to avoid initiating the boiler's SERVICE mode.",
+        "data": {"host": "Host", "port": "Port"},
+        "data_description": {"host": "Bare hostname or IP address, without http:// or a path.", "port": "Controller HTTP port (normally 80)."}
+      },
+      "reconfigure": {
+        "title": "Change connection address",
+        "description": "The new address must identify the same physical controller. No settings are written.",
+        "data": {"host": "Host", "port": "Port"}
+      }
+    },
+    "error": {
+      "cannot_connect": "The controller could not be reached. Check the trusted LAN connection and port.",
+      "auth_failed": "The controller connection could not be authenticated. Check connectivity and controller compatibility.",
+      "cooldown": "The controller's authentication cooldown is active. Wait before trying again.",
+      "incompatible": "The controller returned an unsupported response.",
+      "invalid_host": "Enter a bare hostname or IP address and a valid port.",
+      "no_unique_id": "No usable controller MAC, system ID, or serial number was returned. An IP address cannot be used as device identity."
+    },
+    "abort": {
+      "already_configured": "This controller is already configured.",
+      "already_in_progress": "A setup flow for this controller is already running.",
+      "wrong_device": "The address identifies a different controller. The existing device was not reassigned.",
+      "reconfigure_successful": "Connection updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Controls and diagnostics",
+        "description": "Writes can affect heating immediately. The SDK's actual writes and physical effects are not live-validated. Select only intended controls; no setting is changed while saving options. Programs replace all windows, and daily/weekly selection is never switched automatically.",
+        "data": {
+          "enabled_writes": "Allow writes to these settings",
+          "acknowledge_writes": "I understand the operational risk of enabling selected writes",
+          "raw_channels": "Register optional raw channel sensors (disabled by default)",
+          "pcb_diagnostics": "Read optional PCB diagnostics (raw, disabled by default)"
+        }
+      }
+    },
+    "error": {
+      "acknowledge_writes": "Acknowledge the risk before enabling any writes.",
+      "invalid_controls": "Select only the reviewed settings offered in this form."
+    }
+  },
+  "entity": {"select": {"circuit_mode": {"state": {
+    "off": "Off", "automatic": "Automatic", "permanent_reduced": "Permanent reduced",
+    "permanent_comfort": "Permanent comfort", "once_comfort": "One-time comfort",
+    "once_reduced": "One-time reduced"
+  }}}},
+  "exceptions": {
+    "read_failed": {"message": "The controller read failed. Read-only polling will retry automatically."},
+    "identity_changed": {"message": "The controller identity could not be verified. Check the configured host before retrying."},
+    "writes_disabled": {"message": "This setting is not explicitly enabled for writing, or the integration is unloading."},
+    "state_unavailable": {"message": "A current parameter snapshot is unavailable. Wait for a successful refresh."},
+    "change_refused": {"message": "The change was refused because the value, expected state, device identity, or circuit configuration did not pass validation."},
+    "write_mismatch": {"message": "The stored value did not match the requested change. Inspect the controller; no write was replayed or rolled back."},
+    "write_unknown": {"message": "The write outcome is uncertain. Inspect current state before another intentional change; no write was replayed or rolled back."},
+    "expected_required": {"message": "Applying a program requires the complete expected current program."},
+    "invalid_program": {"message": "The program is invalid. Check day coverage, group/window limits, and local start/end times."}
+  },
+  "services": {
+    "set_circuit_program": {
+      "name": "Set circuit program",
+      "description": "Preview or replace one opted-in circuit's complete comfort program. Does not change circuit mode or global daily/weekly selection. Applying requires the expected current program.",
+      "fields": {
+        "device_id": {"name": "Controller", "description": "Select exactly one configured controller."},
+        "circuit": {"name": "Circuit", "description": "Controller circuit designation, not a physical room name."},
+        "kind": {"name": "Program type", "description": "Must already be selected globally at the controller."},
+        "program": {"name": "Replacement program", "description": "Daily programs use a time_ranges list. Weekly programs use a groups list with numeric weekdays and time_ranges. See the documentation for complete examples."},
+        "expected": {"name": "Expected current program", "description": "Same object shape as the replacement, containing every current window/group. Required when applying."},
+        "preview_only": {"name": "Preview only", "description": "Enabled by default. Disable only to intentionally apply the opted-in program."}
+      }
+    }
+  }
+}
