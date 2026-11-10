@@ -1,9 +1,10 @@
 # Development plan — reusable Hargassner client and Home Assistant integration
 
-Status: the independent **parameters-only, USER-only** async library and thin
-testing CLI are implemented; Home Assistant integration and the wider roadmap
-below remain planned. See the [implemented API](library.md). No installer-level
-support or non-parameter routes are part of the current delivery.
+Status: the independent async library and thin testing CLI support **USER
+parameters plus read-only channels, device info, and PCB diagnostics**. Home
+Assistant integration and the wider roadmap below remain planned. See the
+[implemented API](library.md). Installer-level parameters, identity mutation,
+and other device routes are not part of the current delivery.
 
 - Protocol reference: [`boiler-http-api.md`](boiler-http-api.md).
 - Code-analysis baseline: `smart_hv_2.7.4`, ARM 32-bit Qt 5 application.
@@ -16,14 +17,15 @@ support or non-parameter routes are part of the current delivery.
 Build a small reusable Python library for the boiler HTTP API, then a separate
 Home Assistant integration that uses that library. An optional thin CLI helps
 exercise the library outside Home Assistant; it is not a standalone application.
-The current implementation is deliberately restricted to USER parameter reads
-and opt-in reviewed numeric writes. The client exposes no higher-level catalog
-option, channels, device-info route, or hardware diagnostics.
+The current implementation supports USER parameter reads and opt-in reviewed
+numeric writes, plus exact GET reads of `/channels`, `/info`, and `/pcb`. It
+exposes no higher-level parameter catalog option, identity writes, or arbitrary
+hardware/endpoint operations.
 
 | Deliverable | Responsibility | Dependencies |
 |---|---|---|
-| Python library (`hvclient`, distribution `hargassner-hvclient`) | Async HTTP, session authentication, typed USER parameters, validation, guarded numeric writes, errors | No Home Assistant imports or runtime dependency |
-| Thin testing CLI (`hv-parameters`) | Invoke library parameter methods, print results/errors, explicitly confirm permitted writes | Library; separate console entry point, no second protocol implementation |
+| Python library (`hvclient`, distribution `hargassner-hvclient`) | Async HTTP/auth, typed telemetry/info/PCB and USER parameters, validation, guarded numeric writes, errors | No Home Assistant imports or runtime dependency |
+| Thin testing CLI (`hvctl`) | Invoke library methods, print results/errors, explicitly confirm permitted parameter writes | Library; single console entry point, no second protocol implementation |
 | Home Assistant integration (`hargassner`, provisional domain) | Config entries, polling, entity mappings, availability, lifecycle, integration diagnostics | Home Assistant and a released library version |
 
 The library must be independently installable and testable. Protocol fixes belong
@@ -147,6 +149,8 @@ Avoid duplicating the full endpoint matrix from the protocol reference here.
       against the deployed unit.
 - [x] Independently installable USER-parameter library, thin library-backed CLI,
       and async contract/lifecycle tests implemented with loopback mock servers.
+- [x] Read-only channel, system-info, and PCB methods/CLI commands implemented
+      with shared authentication/recovery, immutable models, and loopback tests.
 - [ ] The new async library validated against the deployed unit; the earlier
       live round trip exercised the research setter, not this implementation.
 - [ ] Home Assistant config flow, coordinators, entities, and lifecycle tested.
@@ -162,10 +166,13 @@ Use an async-first Python API with `aiohttp` as the transport so it fits Home
 Assistant without blocking its event loop. A synchronous wrapper is not needed;
 the optional CLI can call `asyncio.run()`.
 
-Implemented parameters-only public methods:
+Implemented public methods:
 
 ```text
 AsyncHargassnerClient(host, port=80, session=None, write_policy=deny_all)
+  async_get_channels()                                # read-only snapshot
+  async_get_info()                                    # read-only identity/version
+  async_get_pcb()                                     # read-only board diagnostics
   async_get_parameters(names=None)                     # USER only
   async_get_parameter(name)
   async_preview_parameter_write(name, value, expected=...)  # no POST
@@ -173,10 +180,14 @@ AsyncHargassnerClient(host, port=80, session=None, write_policy=deny_all)
   async_close()
 ```
 
-The documented broader information/channel/diagnostic ideas are not exposed by
-this release. USER schedules, choices, booleans, text, and raw controller date/
-time components are readable; writes initially require an explicit subset of
-11 reviewed numeric names. Higher levels and structured writes are out of scope.
+Channel snapshots expose dynamic numeric names without inferred units or enum
+meanings. System info includes optional identity/version strings and must be
+redacted before publishing diagnostics. PCB snapshots expose both numeric board
+readings. Only exact GET roots are supported; identity writes and the mutating
+`/info/systemid/generate` subpath remain blocked. Parameter reads stay USER-only;
+schedules, choices, booleans, text, and raw controller date/time components are
+readable. Writes require a subset of 11 reviewed numeric names. Higher parameter
+levels and structured writes are still out of scope.
 
 - Library initialization must not perform network I/O or authenticate with a
   false/missing `daqOnly` flag.
@@ -375,10 +386,13 @@ stack, TUI, embedded web service, daemon, or disk cookie store.
 Implemented one-shot testing commands:
 
 ```text
-hv-parameters <boiler-ip> list
-hv-parameters <boiler-ip> get <api-name>
-hv-parameters <boiler-ip> set <allowed-name> <value>  # preview
-hv-parameters <boiler-ip> set <allowed-name> <value> --apply --expect <current>
+hvctl <boiler-ip> channels
+hvctl <boiler-ip> info  # contains private device identifiers
+hvctl <boiler-ip> pcb
+hvctl <boiler-ip> list
+hvctl <boiler-ip> get <api-name>
+hvctl <boiler-ip> set <allowed-name> <value>  # preview
+hvctl <boiler-ip> set <allowed-name> <value> --apply --expect <current>
 ```
 
 The testing setter exercises the library's guarded numeric implementation; it
@@ -393,8 +407,8 @@ and should not be imported by the integration.
 The separate [guarded numeric setter](parameter-setter.md) is also investigation
 tooling: it reuses the probe, not the independent async library. Its offline contract
 tests do not complete the guarded-write phase or validate live physical effects.
-The new `hv-parameters` CLI instead calls `hvclient` exclusively. Research tooling
-is retained as historical evidence, not copied into the library/integration.
+The `hvctl` CLI instead calls `hvclient` exclusively. Research tooling is
+retained as historical evidence, not copied into the library/integration.
 
 ## 7. Suggested layout and release boundary
 

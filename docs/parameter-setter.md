@@ -4,7 +4,7 @@
 tool, similar to the read-oriented probe. It uses Python's standard library and
 reuses the probe's SHA-512 authentication and HTTP transport. It is **not** the
 independent async library or its thin CLI.
-For the implemented independent library and its thin `hv-parameters` testing
+For the implemented independent library and its thin `hvctl` testing
 CLI, see [the library reference](library.md). This older tool remains separate
 investigation tooling and is not imported by the library.
 

@@ -1,15 +1,16 @@
-# Hargassner Smart HV — HTTP API analysis and USER-parameter client
+# Hargassner Smart HV — HTTP API analysis and async client
 
 Reverse-engineering notes and tooling for the HTTP service exposed on TCP/80 by
 the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
-The independent async Python library currently supports **USER parameters only**;
-the protocol notes also distinguish observations from a 3.4.0 unit.
+The independent async Python library supports **USER parameters** plus read-only
+**channels, device info, and PCB diagnostics**. The protocol notes also distinguish
+observations from a 3.4.0 unit.
 
 ## Contents
 
 | Path | Purpose |
 |---|---|
-| `src/hvclient/` | Independently installable async USER-parameter library and thin testing CLI; no Home Assistant dependency. |
+| `src/hvclient/` | Independently installable async telemetry/info/PCB and USER-parameter library, with thin testing CLI; no Home Assistant dependency. |
 | `docs/library.md` | Library installation, Python API, write policy, lifecycle, errors, and CLI usage. |
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
@@ -27,22 +28,30 @@ Python 3.11+ is required. Install the library and optional test runner:
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[test]'
 
-.venv/bin/hv-parameters <boiler-ip> list
-.venv/bin/hv-parameters <boiler-ip> get 4 5
-.venv/bin/hv-parameters <boiler-ip> set 4 21  # preview only
+.venv/bin/hvctl <boiler-ip> channels
+.venv/bin/hvctl <boiler-ip> info  # includes private device identifiers
+.venv/bin/hvctl <boiler-ip> pcb
+.venv/bin/hvctl <boiler-ip> list
+.venv/bin/hvctl <boiler-ip> get 4 5
+.venv/bin/hvctl <boiler-ip> set 4 21  # preview only
 ```
 
 ```python
 from hvclient import AsyncHargassnerClient
 
-async def read_daytime_target(host):
+async def read_snapshots(host):
     async with AsyncHargassnerClient(host) as client:
+        channels = await client.async_get_channels()
+        info = await client.async_get_info()
+        pcb = await client.async_get_pcb()
         parameter = await client.async_get_parameter("4")
-        return parameter.value
+        return channels, info.software_version, pcb.internal_temperature, parameter.value
 ```
 
 The library always sends `daqOnly=true` and exposes no mode/level override or
-non-parameter route. Reads return USER entries only, including inactive entries.
+arbitrary endpoint tunnel. Parameter reads return USER entries only, including
+inactive entries. Channels, info, and PCB are strictly GET-only, with typed
+immutable snapshots; identity mutation and all other device routes remain blocked.
 Writes are denied by default; enabling a subset of 11 reviewed numeric names
 requires an explicit `WritePolicy`. The CLI calls the same library, and applying
 a write requires both `--apply` and `--expect`. See the

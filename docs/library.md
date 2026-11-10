@@ -1,8 +1,9 @@
-# Independent USER-parameter library
+# Independent Hargassner client library
 
 `hargassner-hvclient` provides the `hvclient` Python package. It is an async,
-parameters-only client for the local Hargassner HTTP API, with no Home Assistant
-dependency. Python 3.11+ and aiohttp 3.12+ are required.
+client for the local Hargassner HTTP API, with no Home Assistant dependency.
+It supports USER parameters plus **read-only `/channels`, `/info`, and `/pcb`**.
+Python 3.11+ and aiohttp 3.12+ are required.
 
 It **always authenticates with `daqOnly=true`**, including recovery. There is
 no SERVICE-mode flag or fallback, higher-level catalog option, raw endpoint
@@ -18,6 +19,60 @@ python3 -m venv .venv
 
 The package is independently installable. It imports neither the research tools
 nor Home Assistant, and it has no storage, polling daemon, or background tasks.
+
+## Read channels, device info, and board diagnostics
+
+```python
+from hvclient import AsyncHargassnerClient
+
+async def read_snapshots(host):
+    async with AsyncHargassnerClient(host) as client:
+        channels = await client.async_get_channels()
+        info = await client.async_get_info()
+        pcb = await client.async_get_pcb()
+        return channels, info.software_version, pcb.internal_temperature
+```
+
+All three methods use GET with no body and share the same authentication,
+cookie refresh, operation lock, timeouts, response-size bound, and bounded read
+recovery as parameter reads. They work with the default read-only write policy.
+They do not load the parameter catalog or enable any writes.
+
+| Method | Return type | Data |
+|---|---|---|
+| `async_get_channels()` | `ChannelSnapshot`, an immutable numeric `Mapping` | Dynamic channel names and finite numbers, including zero and integer-valued states/counters |
+| `async_get_info()` | `SystemInfo` | `software_version`, `mac`, `system_id`, `commission_number`, `article_serial_number` |
+| `async_get_pcb()` | `PcbInfo` | `internal_temperature` and `internal_voltage`, both finite numbers |
+
+Use `channels[name]`, `.get()`, `.items()`, or `.to_dict()`. Channel names are
+discovered from each snapshot, not hard-coded. An empty object is a valid empty
+snapshot; booleans, strings, nulls, and non-finite readings are rejected rather
+than coerced to numbers. Units, enum meanings, counter behavior, and measured
+versus target semantics are **not inferred** from names or values. Channels do
+not have the parameter catalog's USER/security-level classification and are not
+filtered by it; **parameter** reads remain USER-only.
+
+`SystemInfo` known fields accept strings, missing fields, or null. Missing/null
+fields remain `None`; no replacement identity is generated. `PcbInfo` requires
+both numeric readings and never substitutes zero for a missing sensor. Both
+models preserve unknown fields as immutable `.raw` metadata. Every `.to_dict()`
+returns a detached wire-shaped copy; no snapshot mutates later as polling occurs.
+
+**Privacy:** `/info` contains private device identifiers. Known identity fields
+and raw extensions are hidden from `SystemInfo`'s representation, but explicit
+`.to_dict()` and CLI `info` output contain the original identifiers. Sanitize
+them before publishing logs or Home Assistant diagnostics.
+
+There are no channel/identity/PCB setters. The request boundary allows only the
+exact GET roots for these additions: no body, other HTTP method, query string,
+or subpath. In particular `/info/systemid/generate` remains forbidden even with
+GET, because its firmware handler can mutate state regardless of method.
+
+A `/channels` 404 raises `HTTPError`, without switching authentication modes or
+trying another endpoint. It may indicate unsupported firmware or the firmware's
+global `daqOnly` flag having been changed by another client. No automatic
+stronger login is attempted. A 401 can trigger one fresh `daqOnly=true` login,
+just like a parameter read.
 
 ## Read parameters
 
@@ -143,14 +198,19 @@ There is deliberately no security-level or authentication-mode option.
 ## Thin testing CLI
 
 ```bash
-hv-parameters <boiler-ip> list
-hv-parameters <boiler-ip> get 4 5
-hv-parameters <boiler-ip> set 4 21                        # preview only
-hv-parameters <boiler-ip> set 4 21 --apply --expect 20.5   # intentional write
+hvctl <boiler-ip> channels
+hvctl <boiler-ip> info                                  # includes private device IDs
+hvctl <boiler-ip> pcb
+hvctl <boiler-ip> list
+hvctl <boiler-ip> get 4 5
+hvctl <boiler-ip> set 4 21                        # preview only
+hvctl <boiler-ip> set 4 21 --apply --expect 20.5   # intentional write
 ```
 
 These are syntax examples, not recommended temperatures. `--port`/`--timeout`
-precede the command. `python -m hvclient` is equivalent. The CLI only parses
+precede the command. `python -m hvclient` invokes the same `hvctl` client.
+All `channels`, `info`, and `pcb` commands
+are read-only and print their wire-shaped JSON objects. The CLI only parses
 arguments, calls the library, confirms writes via flags, and prints JSON/errors;
 it implements no authentication, transport, metadata validation, or write policy
 of its own. CLI application requires `--expect` in addition to `--apply`.
@@ -169,6 +229,8 @@ are not imported by the library or the intended Home Assistant integration.
 Tests use synthetic data and loopback mock HTTP servers, not a boiler. The
 [earlier live round trip](parameter-setter.md#live-validation--2026-11-09)
 validated the research setter, **not this new async implementation**. No live
-library requests or writes are implied by installation or tests. A Home Assistant
-integration, non-parameter routes, higher catalog levels, and structured writes
+library requests or writes are implied by installation or tests. The added
+telemetry/info/PCB decoders are also checked against local captured JSON, not
+new requests. A Home Assistant integration, other device routes, non-GET
+telemetry/identity operations, higher parameter levels, and structured writes
 are outside this implementation.
