@@ -14,7 +14,7 @@ dependencies = ["aiohttp>=3.12,<4", "yarl>=1.17,<2"]
 test = ["pytest>=8"]
 
 [project.scripts]
-hv-parameters = "hvclient.cli:main"
+hvctl = "hvclient.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

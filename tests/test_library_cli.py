@@ -5,6 +5,7 @@ import sys
 import unittest
 from argparse import Namespace
 from contextlib import redirect_stderr, redirect_stdout
+from importlib.metadata import distribution
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
@@ -13,6 +14,14 @@ from hvclient import AsyncHargassnerClient, ValidationError, cli
 
 
 class CLIAndConfigurationTests(unittest.TestCase):
+    def test_hvctl_is_the_only_console_entry_point(self):
+        scripts = {
+            entry.name: entry.value
+            for entry in distribution("hargassner-hvclient").entry_points
+            if entry.group == "console_scripts"
+        }
+        self.assertEqual(scripts, {"hvctl": "hvclient.cli:main"})
+
     def test_constructor_does_not_create_session_or_perform_io(self):
         with patch("hvclient.client.aiohttp.ClientSession") as session:
             client = AsyncHargassnerClient("192.0.2.10")
