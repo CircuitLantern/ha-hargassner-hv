@@ -1,0 +1,4 @@
+include docs/library.md
+include tests/__init__.py tests/library_support.py
+include tests/test_library_*.py
+exclude tests/test_set_parameter.py
