@@ -18,6 +18,8 @@ from typing import Any, Self
 import aiohttp
 from yarl import URL
 
+from .catalog import supported_parameter
+from .curves import HEATING_CURVES
 from .errors import (
     AuthenticationError,
     ClientClosedError,
@@ -45,7 +47,22 @@ from .models import (
     pcb_info_from_json,
     system_info_from_json,
 )
-from .policy import WritePolicy, decimal_number, numeric_input, validate_change
+from .modes import CIRCUIT_MODES, mode_id
+from .policy import (
+    WritePolicy,
+    numeric_input,
+    parameter_input,
+    stored_value,
+    validate_change,
+    validate_curve_context,
+    validate_mode_context,
+    validate_mode_parameter,
+    validate_schedule_context,
+    validate_schedule_parameter,
+    values_equal,
+    wire_value,
+)
+from .schedules import SCHEDULE_PARAMETERS, normalize_schedule
 
 _LOGGER = logging.getLogger(__name__)
 _SALT = "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27"
@@ -121,7 +138,7 @@ def _cookie(headers: Iterable[str]) -> str | None:
 
 
 class AsyncHargassnerClient:
-    """Read-only telemetry/information and USER parameters, with opt-in writes.
+    """Telemetry, USER parameters and reviewed curve/circuit-mode exceptions.
 
     No I/O occurs until an async read/write operation is invoked.
 
@@ -224,7 +241,17 @@ class AsyncHargassnerClient:
             ):
                 name = _name(entries[0]["name"])
                 self._write_policy.require(name)
-                numeric_input(name, entries[0]["value"])
+                value = entries[0]["value"]
+                if name in SCHEDULE_PARAMETERS:
+                    canonical = normalize_schedule(name, value).to_json()
+                    if value != canonical:
+                        raise WritePolicyError("circuit-schedule wire value must be canonical")
+                elif name in CIRCUIT_MODES:
+                    if not isinstance(value, dict) or set(value) != {"id"}:
+                        raise WritePolicyError("circuit-mode wire value must contain only id")
+                    mode_id(value["id"])
+                else:
+                    numeric_input(name, value)
                 if self._cookie is not None:
                     return
         raise WritePolicyError("request is outside the supported endpoint/method policy")
@@ -336,41 +363,48 @@ class AsyncHargassnerClient:
         return self._parameters(response, names)
 
     @staticmethod
-    def _parameters(response: _Response, names: tuple[str, ...] | None) -> dict[str, Parameter]:
+    def _parameter_rows(
+        response: _Response, names: tuple[str, ...] | None
+    ) -> dict[str, dict[str, Any]]:
         document = response.json()
         rows = document.get("parameters") if isinstance(document, dict) else None
         if not isinstance(rows, list):
             raise ProtocolError("response has no parameters array")
-        parameters = {}
-        seen = set()
+        result = {}
         for row in rows:
             if not isinstance(row, dict) or not isinstance(row.get("name"), str):
                 raise ProtocolError("invalid parameter catalog entry")
             name = row["name"]
-            if name in seen:
+            if name in result:
                 raise ProtocolError("duplicate parameter API name in response")
-            seen.add(name)
             if names is not None and name not in names:
                 raise ProtocolError("selected read returned an unrequested parameter")
-            if row.get("securityLevel") != "USER":
+            result[name] = row
+        return result
+
+    @staticmethod
+    def _parameters(response: _Response, names: tuple[str, ...] | None) -> dict[str, Parameter]:
+        parameters = {}
+        for name, row in AsyncHargassnerClient._parameter_rows(response, names).items():
+            if not supported_parameter(name, row.get("securityLevel")):
                 if names is not None:
-                    raise ParameterAccessError("selected parameter is not classified USER")
+                    raise ParameterAccessError("selected parameter is outside the supported catalog")
                 continue
             try:
                 parameters[name] = parameter_from_json(row)
             except RecursionError as exc:
                 raise ProtocolError("parameter JSON nesting exceeds the supported depth") from exc
         if names is not None and set(names) != set(parameters):
-            raise ParameterNotFoundError("one or more selected USER parameters were not returned")
+            raise ParameterNotFoundError("one or more selected parameters were not returned")
         return parameters
 
     async def async_get_parameters(
         self, names: Iterable[str] | None = None
     ) -> dict[str, Parameter]:
-        """Read USER parameters, including inactive ones. None fetches the catalog.
+        """Read USER parameters plus six curve and three circuit-mode exceptions.
 
-        The server has no level-filtered route. Non-USER rows from a full catalog
-        are discarded; selected non-USER names are refused, not returned.
+        Include inactive supported entries. Other non-USER entries are discarded
+        from the full catalog and refused when selected. No general level option.
         """
         selected = _names(names)
         async with self._operation_lock:
@@ -405,11 +439,72 @@ class AsyncHargassnerClient:
             return pcb_info_from_json(response.json())
 
     async def _preview(self, name: str, value: Any, expected: Any) -> WritePreview:
-        parameter = (await self._get_parameters((name,)))[name]
+        circuit_type = None
+        if name in SCHEDULE_PARAMETERS:
+            parameter, circuit_type = await self._get_schedule_context(name)
+        elif name in CIRCUIT_MODES:
+            parameter, circuit_type = await self._get_mode_context(name)
+        elif name in HEATING_CURVES:
+            parameter = await self._get_curve_context(name)
+        else:
+            parameter = (await self._get_parameters((name,)))[name]
         requested = validate_change(parameter, value, self._write_policy)
-        if expected is not _UNSET and decimal_number(expected) != decimal_number(parameter.value):
-            raise ValidationError("current value does not match expected; no update sent")
-        return WritePreview(parameter, requested)
+        if expected is not _UNSET:
+            expected_value = mode_id(expected) if name in CIRCUIT_MODES else expected
+            if not values_equal(name, expected_value, stored_value(parameter)):
+                raise ValidationError("current value does not match expected; no update sent")
+        return WritePreview(parameter, requested, circuit_type)
+
+    async def _get_schedule_context(
+        self, name: str, *, expected_type: int | None = None
+    ) -> tuple[Parameter, int]:
+        program = SCHEDULE_PARAMETERS[name]
+        names = (name, program.peer, program.selector, "D9")
+        response = await self._authenticated_read("/parameters", {"parameters": list(names)})
+        rows = self._parameter_rows(response, names)
+        if set(rows) != set(names):
+            raise ParameterNotFoundError("circuit-schedule configuration context was not returned")
+        try:
+            parameter = parameter_from_json(rows[name])
+            peer = parameter_from_json(rows[program.peer])
+        except RecursionError as exc:
+            raise ProtocolError("circuit-schedule JSON nesting exceeds the supported depth") from exc
+        configured = validate_schedule_context(
+            parameter, peer, rows[program.selector], rows["D9"], expected_type
+        )
+        return parameter, configured
+
+    async def _get_mode_context(
+        self, name: str, *, expected_type: int | None = None
+    ) -> tuple[Parameter, int]:
+        selector = CIRCUIT_MODES[name]
+        names = (name, selector)
+        response = await self._authenticated_read("/parameters", {"parameters": list(names)})
+        rows = self._parameter_rows(response, names)
+        if set(rows) != set(names):
+            raise ParameterNotFoundError("circuit-mode configuration context was not returned")
+        try:
+            parameter = parameter_from_json(rows[name])
+        except RecursionError as exc:
+            raise ProtocolError("circuit-mode JSON nesting exceeds the supported depth") from exc
+        configured = validate_mode_context(parameter, rows[selector], expected_type)
+        return parameter, configured
+
+    async def _get_curve_context(self, name: str) -> Parameter:
+        profile = HEATING_CURVES[name]
+        names = (name, profile.peer, profile.selector)
+        response = await self._authenticated_read("/parameters", {"parameters": list(names)})
+        rows = self._parameter_rows(response, names)
+        if set(rows) != set(names):
+            raise ParameterNotFoundError("heating-curve profile context was not returned")
+        try:
+            parameter = parameter_from_json(rows[name])
+            peer = parameter_from_json(rows[profile.peer])
+        except RecursionError as exc:
+            raise ProtocolError("heating-curve JSON nesting exceeds the supported depth") from exc
+        # Selector data are internal validation context, not public catalog access.
+        validate_curve_context(parameter, peer, rows[profile.selector])
+        return parameter
 
     async def async_preview_parameter_write(
         self, name: str, value: Any, *, expected: Any = _UNSET
@@ -417,7 +512,9 @@ class AsyncHargassnerClient:
         """Fetch and validate a proposed write, with no parameter POST."""
         name = _name(name)
         self._write_policy.require(name)
-        numeric_input(name, value)
+        value = parameter_input(name, value)
+        if name in SCHEDULE_PARAMETERS and expected is not _UNSET:
+            expected = normalize_schedule(name, expected, replacement=False)
         async with self._operation_lock:
             self._check_open()
             return await self._preview(name, value, expected)
@@ -432,12 +529,23 @@ class AsyncHargassnerClient:
         """
         name = _name(name)
         self._write_policy.require(name)
-        numeric_input(name, value)
+        value = parameter_input(name, value)
+        if name in HEATING_CURVES and expected is _UNSET:
+            raise ValidationError("heating-curve writes require an expected current slope")
+        if name in CIRCUIT_MODES:
+            if expected is _UNSET:
+                raise ValidationError("circuit-mode writes require an expected current mode ID")
+            mode_id(expected)
+        if name in SCHEDULE_PARAMETERS:
+            if expected is _UNSET and SCHEDULE_PARAMETERS[name].limits.expected_required:
+                raise ValidationError("circuit-schedule writes require an expected current program")
+            if expected is not _UNSET:
+                expected = normalize_schedule(name, expected, replacement=False)
         async with self._operation_lock:
             self._check_open()
             preview = await self._preview(name, value, expected)
             before, requested = preview.parameter, preview.requested
-            if decimal_number(before.value) == decimal_number(requested):
+            if values_equal(name, stored_value(before), requested):
                 return WriteResult(name, requested, before, before, None, "unchanged")
 
             returned = after = None
@@ -445,7 +553,7 @@ class AsyncHargassnerClient:
             write_error = read_error = None
             try:
                 response = await self._request("POST", "/parameters", {
-                    "parameters": [{"name": name, "value": requested}]
+                    "parameters": [{"name": name, "value": wire_value(name, requested)}]
                 })
                 status = response.status
                 if status != 200:
@@ -457,16 +565,36 @@ class AsyncHargassnerClient:
             # A rejected/lost response does not prove the setter did not run.
             # Read recovery may re-authenticate with true, but never repeats POST.
             try:
-                after = (await self._get_parameters((name,)))[name]
+                if name in SCHEDULE_PARAMETERS:
+                    after, _ = await self._get_schedule_context(
+                        name, expected_type=preview.circuit_type_id
+                    )
+                elif name in CIRCUIT_MODES:
+                    after, _ = await self._get_mode_context(
+                        name, expected_type=preview.circuit_type_id
+                    )
+                elif name in HEATING_CURVES:
+                    after = await self._get_curve_context(name)
+                else:
+                    after = (await self._get_parameters((name,)))[name]
             except HargassnerError as exc:
                 read_error = exc
 
             def matches(parameter: Parameter | None) -> bool:
-                return (
-                    parameter is not None and parameter.type == before.type
-                    and type(parameter.value) in (int, float)
-                    and decimal_number(parameter.value) == decimal_number(requested)
-                )
+                if (
+                    parameter is None or parameter.type != before.type
+                    or parameter.security_level != before.security_level
+                    or parameter.unit != before.unit or parameter.active is not before.active
+                ):
+                    return False
+                try:
+                    if name in CIRCUIT_MODES:
+                        validate_mode_parameter(parameter)
+                    if name in SCHEDULE_PARAMETERS:
+                        validate_schedule_parameter(parameter, active=True)
+                    return values_equal(name, stored_value(parameter), requested)
+                except ValidationError:
+                    return False
 
             if write_error is not None or read_error is not None:
                 result = WriteResult(name, requested, before, after, returned, "unknown", status)

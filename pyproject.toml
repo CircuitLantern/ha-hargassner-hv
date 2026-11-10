@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hargassner-hvclient"
 version = "0.1.0"
-description = "Independent async client for Hargassner telemetry, information and USER parameters"
+description = "Independent async client for Hargassner telemetry, USER parameters, heating curves and circuit modes"
 readme = "docs/library.md"
 requires-python = ">=3.11"
 dependencies = ["aiohttp>=3.12,<4", "yarl>=1.17,<2"]

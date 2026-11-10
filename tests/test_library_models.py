@@ -1,19 +1,28 @@
 import dataclasses
 import unittest
 from decimal import Decimal, localcontext
+from enum import IntEnum
 
 from hvclient import (
+    CIRCUIT_MODE_PARAMETERS,
+    CIRCUIT_MODE_WRITES,
+    HEATING_CURVE_WRITES,
     NUMERIC_USER_WRITES,
+    NUMERIC_WRITES,
+    PARAMETER_WRITES,
     ChannelSnapshot,
     Choice,
     ControllerDateTime,
+    HeatingCircuitMode,
     ParameterAccessError,
+    ParameterMeaning,
     ProtocolError,
     TimeRange,
     ValidationError,
     WeeklyTimeRanges,
     WritePolicy,
     WritePolicyError,
+    get_parameter_meaning,
 )
 from hvclient.models import (
     channels_from_json,
@@ -21,8 +30,14 @@ from hvclient.models import (
     pcb_info_from_json,
     system_info_from_json,
 )
-from hvclient.policy import validate_change
-from tests.library_support import numeric, user_catalog
+from hvclient.modes import mode_id
+from hvclient.policy import (
+    validate_change,
+    validate_curve_context,
+    validate_mode_context,
+    wire_value,
+)
+from tests.library_support import curve_catalog, mode_catalog, numeric, user_catalog
 
 
 class ModelTests(unittest.TestCase):
@@ -162,6 +177,176 @@ class PolicyTests(unittest.TestCase):
             parameter = parameter_from_json(numeric(**changes))
             with self.subTest(changes=changes), self.assertRaises(ValidationError):
                 validate_change(parameter, 21, WritePolicy.only("4"))
+
+
+class HeatingCurvePolicyTests(unittest.TestCase):
+    def test_exact_six_exceptions_are_separate_from_user_names(self):
+        self.assertEqual(set(HEATING_CURVE_WRITES), {"A2", "A2a", "A12", "A12a", "A62", "A62a"})
+        self.assertEqual(len(NUMERIC_USER_WRITES), 11)
+        self.assertEqual(len(NUMERIC_WRITES), 17)
+        self.assertTrue(set(NUMERIC_USER_WRITES).isdisjoint(HEATING_CURVE_WRITES))
+        for name in HEATING_CURVE_WRITES:
+            self.assertEqual(WritePolicy.only(name).allowed_names, {name})
+        for name in ("A1", "A11", "A61", "A3", "A3a", "A4a", "A5", "K38"):
+            with self.subTest(name=name), self.assertRaises(WritePolicyError):
+                WritePolicy.only(name)
+
+    def test_curve_parser_preserves_plumber_classification_and_dimensionless_unit(self):
+        parameter = parameter_from_json(curve_catalog()["A2a"])
+        self.assertEqual(parameter.security_level, "PLUMBER")
+        self.assertEqual(parameter.to_dict()["securityLevel"], "PLUMBER")
+        self.assertEqual(parameter.unit, "")
+        self.assertEqual(parameter.value, 0.6)
+        self.assertEqual(validate_change(parameter, Decimal("0.7"), WritePolicy.only("A2a")), 0.7)
+
+    def test_curve_metadata_and_numeric_grid_are_not_celsius_policy(self):
+        row = curve_catalog()["A2a"]
+        for changes in ({"securityLevel": "USER"}, {"unit": "°C"}, {"unit": None},
+                        {"active": False}, {"minimum": None}, {"increment": None}):
+            parameter = parameter_from_json(dict(row, **changes))
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                validate_change(parameter, 0.7, WritePolicy.only("A2a"))
+        parameter = parameter_from_json(row)
+        for value in (0, 3.6, 0.65, False, float("nan"), "0.7"):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                validate_change(parameter, value, WritePolicy.only("A2a"))
+
+    def test_profile_validation_uses_ids_and_active_pair_not_translated_help(self):
+        rows = curve_catalog()
+        active = parameter_from_json(rows["A12a"])
+        inactive = parameter_from_json(rows["A12"])
+        validate_curve_context(active, inactive, rows["A11"])
+        with self.assertRaises(ValidationError):
+            validate_curve_context(inactive, active, rows["A11"])
+        for changes in ({"active": True}, {"unit": "°C"}, {"securityLevel": "USER"}):
+            peer = parameter_from_json(dict(rows["A12"], **changes))
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                validate_curve_context(active, peer, rows["A11"])
+        for choice in (0, 1, 3, True, "2"):
+            selector = dict(rows["A11"], value={"id": choice})
+            with self.subTest(choice=choice), self.assertRaises(ValidationError):
+                validate_curve_context(active, inactive, selector)
+
+
+class CircuitModePolicyTests(unittest.TestCase):
+    def test_exact_three_mode_exceptions_and_six_ids(self):
+        self.assertEqual(set(CIRCUIT_MODE_WRITES), {"A1z", "A11z", "A61z"})
+        self.assertEqual([int(mode) for mode in HeatingCircuitMode], list(range(6)))
+        self.assertEqual(len(NUMERIC_USER_WRITES), 11)
+        self.assertEqual(len(NUMERIC_WRITES), 17)
+        self.assertEqual(len(PARAMETER_WRITES), 26)
+        self.assertEqual(WritePolicy.only("A1z").allowed_names, {"A1z"})
+        for name in ("system.mode", "Wahlschalter", "A1", "developer", "E18", "Setup4"):
+            with self.subTest(name=name), self.assertRaises(WritePolicyError):
+                WritePolicy.only(name)
+
+    def test_mode_ids_are_explicit_and_never_plant_service(self):
+        class PlantMode(IntEnum):
+            OTHER = 1
+            SERVICE = 6
+
+        self.assertEqual(mode_id(HeatingCircuitMode.OFF), 0)
+        self.assertEqual(mode_id(HeatingCircuitMode.AUTOMATIC), 1)
+        for value in (True, False, -1, 6, 100, 1.0, Decimal(1), "Automatic", "1",
+                      {"id": 1}, Choice(1, "Automatic"), PlantMode.OTHER, PlantMode.SERVICE):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                mode_id(value)
+
+    def test_hidden_mode_exception_preserves_level_and_encodes_id_only(self):
+        parameter = parameter_from_json(mode_catalog()["A1z"])
+        self.assertEqual(parameter.security_level, "DEVELOPER")
+        self.assertIs(parameter.active, False)
+        self.assertEqual(parameter.value, Choice(3, "Comfort"))
+        value = validate_change(parameter, HeatingCircuitMode.AUTOMATIC, WritePolicy.only("A1z"))
+        self.assertIs(type(value), int)
+        self.assertEqual(wire_value("A1z", value), {"id": 1})
+        self.assertEqual(wire_value("A1z", 0), {"id": 0})
+        self.assertEqual(validate_mode_context(parameter, mode_catalog()["A1"]), 2)
+
+    def test_hidden_flag_does_not_allow_arbitrary_inactive_or_developer_writes(self):
+        row = mode_catalog()["A1z"]
+        for changes in ({"securityLevel": "USER"}, {"active": True}, {"active": None},
+                        {"unit": "°C"}, {"choices": []}):
+            parameter = parameter_from_json(dict(row, **changes))
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                validate_change(parameter, 1, WritePolicy.only("A1z"))
+        with self.assertRaises(ValidationError):
+            validate_change(parameter_from_json(numeric(active=False)), 21, WritePolicy.only("4"))
+        with self.assertRaises(ParameterAccessError):
+            parameter_from_json(dict(row, name="arbitrary-developer-choice"))
+
+    def test_mode_choice_contract_rejects_missing_extra_duplicate_or_unknown_current_ids(self):
+        row = mode_catalog()["A1z"]
+        for choices in (row["choices"][:-1], row["choices"] + [{"id": 6, "name": "Unexpected"}],
+                        row["choices"][:-1] + [row["choices"][0]]):
+            parameter = parameter_from_json(dict(row, choices=choices))
+            with self.subTest(choices=choices), self.assertRaises(ValidationError):
+                validate_change(parameter, 1, WritePolicy.only("A1z"))
+        parameter = parameter_from_json(dict(row, value={"id": 6, "name": "Unknown"}))
+        with self.assertRaises(ValidationError):
+            validate_change(parameter, 0, WritePolicy.only("A1z"))
+
+    def test_mode_context_requires_present_configured_circuit_and_stable_type(self):
+        rows = mode_catalog()
+        parameter = parameter_from_json(rows["A1z"])
+        for changes in ({"active": False}, {"securityLevel": "DEVELOPER"},
+                        {"value": {"id": 0}}, {"value": {"id": True}}, {"value": {"id": 3}}):
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                validate_mode_context(parameter, dict(rows["A1"], **changes))
+        with self.assertRaises(ValidationError):
+            validate_mode_context(parameter, rows["A1"], expected_type=1)
+
+
+class ParameterMeaningTests(unittest.TestCase):
+    def test_public_zone_registry_resolves_all_three_wire_names_and_meanings(self):
+        self.assertEqual(set(CIRCUIT_MODE_PARAMETERS), {"1", "2", "A"})
+        expected = {"1": "A1z", "2": "A11z", "A": "A61z"}
+        for zone, name in expected.items():
+            with self.subTest(zone=zone):
+                meaning = CIRCUIT_MODE_PARAMETERS[zone]
+                self.assertIsInstance(meaning, ParameterMeaning)
+                self.assertEqual(meaning.name, name)
+                self.assertEqual(meaning.zone, zone)
+                self.assertEqual(meaning.purpose, "operating_mode")
+                self.assertEqual(meaning.label, f"Heating circuit {zone} operating mode")
+                self.assertIn("space-heating circuit", meaning.description)
+                self.assertIs(get_parameter_meaning(name), meaning)
+        self.assertEqual({p.name for p in CIRCUIT_MODE_PARAMETERS.values()}, set(CIRCUIT_MODE_WRITES))
+
+    def test_returned_parameter_attaches_same_meaning_without_replacing_firmware_text(self):
+        rows = mode_catalog()
+        for zone, meaning in CIRCUIT_MODE_PARAMETERS.items():
+            row = dict(rows[meaning.name], description="Mode de zone", helpText="Mode réglé")
+            parameter = parameter_from_json(row)
+            with self.subTest(zone=zone):
+                self.assertIs(parameter.meaning, meaning)
+                self.assertEqual(parameter.description, "Mode de zone")
+                self.assertEqual(parameter.help_text, "Mode réglé")
+                self.assertEqual(parameter.to_dict(), row)
+                self.assertNotIn("meaning", parameter.to_dict())
+
+    def test_registry_and_descriptors_are_immutable(self):
+        meaning = CIRCUIT_MODE_PARAMETERS["1"]
+        with self.assertRaises(TypeError):
+            CIRCUIT_MODE_PARAMETERS["1"] = meaning
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            meaning.zone = "2"
+        parameter = parameter_from_json(mode_catalog()[meaning.name])
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            parameter.meaning = None
+
+    def test_unknown_and_unmapped_parameters_have_no_guessed_meaning(self):
+        for name in ("unknown", "A99z", "A1", "4", "A2a"):
+            with self.subTest(name=name):
+                self.assertIsNone(get_parameter_meaning(name))
+        self.assertIsNone(parameter_from_json(numeric()).meaning)
+
+    def test_firmware_metadata_cannot_override_reviewed_library_meaning(self):
+        row = dict(mode_catalog()["A1z"], meaning={"zone": "untrusted", "purpose": "other"})
+        parameter = parameter_from_json(row)
+        self.assertEqual(parameter.meaning.zone, "1")
+        self.assertEqual(parameter.meaning.purpose, "operating_mode")
+        self.assertEqual(parameter.to_dict()["meaning"], row["meaning"])
 
 
 class SnapshotModelTests(unittest.TestCase):

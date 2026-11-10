@@ -45,7 +45,7 @@ class CooldownError(AuthenticationError):
 
 
 class ParameterAccessError(HargassnerError):
-    """Requested parameter is not classified USER; no higher-level data exposed."""
+    """Parameter is outside USER and the specific reviewed curve/mode exceptions."""
 
 
 class ParameterNotFoundError(HargassnerError):
@@ -61,7 +61,7 @@ class WritePolicyError(ValidationError):
 
 
 class WriteVerificationError(HargassnerError):
-    """Contains only USER before/returned/read-back data; never replay a write."""
+    """Contains only supported before/returned/read-back data; never replay a write."""
 
     def __init__(
         self,

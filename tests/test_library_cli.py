@@ -10,7 +10,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
-from hvclient import AsyncHargassnerClient, ValidationError, cli
+from hvclient import (
+    AsyncHargassnerClient,
+    DailySchedule,
+    TimeRange,
+    ValidationError,
+    cli,
+)
+from hvclient.models import WriteResult, parameter_from_json
+from tests.library_support import mode_catalog, schedule_catalog
 
 
 class CLIAndConfigurationTests(unittest.TestCase):
@@ -148,3 +156,74 @@ class CLIAndConfigurationTests(unittest.TestCase):
                 self.assertFalse(constructor.call_args.kwargs["write_policy"].allowed_names)
                 instance.async_set_parameter.assert_not_awaited()
                 instance.async_preview_parameter_write.assert_not_awaited()
+
+    def test_mode_cli_is_thin_and_preserves_zero_id_and_expected(self):
+        before = parameter_from_json(mode_catalog()["A1z"])
+        after = parameter_from_json(dict(mode_catalog()["A1z"], value={"id": 0, "name": "Off"}))
+        instance = AsyncMock()
+        instance.__aenter__.return_value = instance
+        instance.async_set_parameter.return_value = WriteResult(
+            "A1z", 0, before, after, after, "verified", 200
+        )
+        with (
+            patch("hvclient.cli.AsyncHargassnerClient", return_value=instance) as constructor,
+            redirect_stdout(io.StringIO()) as out,
+        ):
+            code = cli.main(["127.0.0.1", "set", "A1z", "0", "--apply", "--expect", "3"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["requested"], 0)
+        self.assertTrue(json.loads(out.getvalue())["read_back_matches"])
+        self.assertEqual(constructor.call_args.kwargs["write_policy"].allowed_names, {"A1z"})
+        instance.async_set_parameter.assert_awaited_once_with("A1z", 0, expected=3)
+
+    def test_mode_cli_preview_prints_configured_circuit_context_without_write(self):
+        parameter = parameter_from_json(mode_catalog()["A1z"])
+        instance = AsyncMock()
+        instance.__aenter__.return_value = instance
+        instance.async_preview_parameter_write.return_value = Namespace(
+            parameter=parameter, requested=1, circuit_type_id=2
+        )
+        with (
+            patch("hvclient.cli.AsyncHargassnerClient", return_value=instance),
+            redirect_stdout(io.StringIO()) as out,
+        ):
+            code = cli.main(["127.0.0.1", "set", "A1z", "1"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["circuit_type_id"], 2)
+        instance.async_set_parameter.assert_not_awaited()
+
+    def test_mode_cli_expected_zero_is_not_missing(self):
+        before = parameter_from_json(dict(mode_catalog()["A1z"], value={"id": 0, "name": "Off"}))
+        after = parameter_from_json(dict(mode_catalog()["A1z"], value={"id": 1, "name": "Auto"}))
+        instance = AsyncMock()
+        instance.__aenter__.return_value = instance
+        instance.async_set_parameter.return_value = WriteResult(
+            "A1z", 1, before, after, after, "verified", 200
+        )
+        with (
+            patch("hvclient.cli.AsyncHargassnerClient", return_value=instance),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(cli.main(["127.0.0.1", "set", "A1z", "1", "--apply", "--expect", "0"]), 0)
+        instance.async_set_parameter.assert_awaited_once_with("A1z", 1, expected=0)
+
+    def test_schedule_cli_accepts_json_program_and_expected_arrays(self):
+        current = schedule_catalog()["3"]
+        value = [{"start": "07:00", "end": "09:00"}]
+        requested = DailySchedule((TimeRange("07:00", "09:00"),))
+        before = parameter_from_json(current)
+        after = parameter_from_json(dict(current, value=requested.to_json()))
+        instance = AsyncMock()
+        instance.__aenter__.return_value = instance
+        instance.async_set_parameter.return_value = WriteResult(
+            "3", requested, before, after, after, "verified", 200
+        )
+        with (
+            patch("hvclient.cli.AsyncHargassnerClient", return_value=instance),
+            redirect_stdout(io.StringIO()) as out,
+        ):
+            code = cli.main(["127.0.0.1", "set", "3", json.dumps(value),
+                             "--apply", "--expect", json.dumps(current["value"])])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["requested"], requested.to_json())
+        instance.async_set_parameter.assert_awaited_once_with("3", value, expected=current["value"])

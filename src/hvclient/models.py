@@ -8,7 +8,17 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
 
-from .errors import ParameterAccessError, ProtocolError
+from .catalog import supported_parameter
+from .errors import ParameterAccessError, ProtocolError, ValidationError
+from .modes import CIRCUIT_MODES, ParameterMeaning, get_parameter_meaning
+from .schedules import (
+    SCHEDULE_PARAMETERS,
+    DailySchedule,
+    ScheduleLimits,
+    WeeklySchedule,
+    get_schedule_limits,
+    schedules_equal,
+)
 
 
 def freeze_json(value: Any) -> Any:
@@ -48,7 +58,7 @@ class TimeRange:
 
 @dataclass(frozen=True)
 class WeeklyTimeRanges:
-    # Numeric weekdays are preserved, not assigned an unverified weekday map.
+    # Numeric IDs are preserved. The writer exposes Qt's ISO map through Weekday.
     weekdays: tuple[int, ...]
     time_ranges: tuple[TimeRange, ...]
 
@@ -265,18 +275,28 @@ class Parameter:
     true_text: str | None
     false_text: str | None
     raw: Mapping[str, Any] = field(repr=False)
-    security_level: Literal["USER"] = field(default="USER", init=False)
+    security_level: Literal["USER", "PLUMBER", "DEVELOPER"] = "USER"
+
+    @property
+    def meaning(self) -> ParameterMeaning | None:
+        """Reviewed library semantics, separate from controller descriptions/raw data."""
+        return get_parameter_meaning(self.name)
+
+    @property
+    def schedule_limits(self) -> ScheduleLimits | None:
+        """Static SDK write envelope for reviewed programs, not live eligibility."""
+        return get_schedule_limits(self.name)
 
     def to_dict(self) -> dict[str, Any]:
-        """Detached wire-shaped USER data; nested catalog children are excluded."""
+        """Detached wire-shaped data, without library meanings or catalog children."""
         return thaw_json(self.raw)
 
 
 def parameter_from_json(row: Any) -> Parameter:
     if not isinstance(row, dict):
         raise ProtocolError("parameter is not an object")
-    if row.get("securityLevel") != "USER":
-        raise ParameterAccessError("only USER parameters are supported")
+    if not supported_parameter(row.get("name"), row.get("securityLevel")):
+        raise ParameterAccessError("parameter is outside USER and the reviewed curve/mode exceptions")
     if not isinstance(row.get("name"), str) or not row["name"]:
         raise ProtocolError("parameter has no API name")
     if not isinstance(row.get("type"), str) or "value" not in row:
@@ -307,19 +327,22 @@ def parameter_from_json(row: Any) -> Parameter:
         maximum=number("maximum"), increment=number("increment"),
         choices=tuple(_choice(item) for item in choices),
         true_text=text("trueText"), false_text=text("falseText"), raw=raw,
+        security_level=("USER" if row["securityLevel"] == "USER" else
+                        "PLUMBER" if row["securityLevel"] == "PLUMBER" else "DEVELOPER"),
     )
 
 
 @dataclass(frozen=True)
 class WritePreview:
     parameter: Parameter
-    requested: int | float
+    requested: int | float | DailySchedule | WeeklySchedule
+    circuit_type_id: int | None = None
 
 
 @dataclass(frozen=True)
 class WriteResult:
     name: str
-    requested: int | float
+    requested: int | float | DailySchedule | WeeklySchedule
     before: Parameter
     after: Parameter | None
     returned: Parameter | None
@@ -334,4 +357,11 @@ class WriteResult:
     def read_back_matches(self) -> bool | None:
         if self.after is None:
             return None
+        if self.name in SCHEDULE_PARAMETERS:
+            try:
+                return schedules_equal(self.name, self.after.value, self.requested)
+            except ValidationError:
+                return False
+        if self.name in CIRCUIT_MODES and isinstance(self.after.value, Choice):
+            return type(self.requested) is int and self.after.value.id == self.requested
         return type(self.after.value) in (int, float) and self.after.value == self.requested

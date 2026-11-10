@@ -13,19 +13,27 @@ from .client import AsyncHargassnerClient
 from .errors import HargassnerError, ValidationError, WriteVerificationError
 from .models import WriteResult
 from .policy import WritePolicy, decimal_number
+from .schedules import DailySchedule, WeeklySchedule
 
 
-def _number(text: str) -> int | Decimal:
+def _value(text: str) -> Any:
     try:
         value = json.loads(text, parse_float=Decimal)
+        if isinstance(value, list):
+            return value
         decimal_number(value)
         return value
     except (ValueError, InvalidOperation, ValidationError) as exc:
-        raise argparse.ArgumentTypeError("expected a finite JSON number") from exc
+        raise argparse.ArgumentTypeError("expected a finite JSON number or program array") from exc
 
 
 def _print(value: Any) -> None:
-    print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False))
+    def encode(item: Any) -> Any:
+        if isinstance(item, (DailySchedule, WeeklySchedule)):
+            return item.to_json()
+        raise TypeError(f"cannot serialize {type(item).__name__}")
+
+    print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False, default=encode))
 
 
 def _write_report(result: WriteResult) -> dict[str, Any]:
@@ -59,10 +67,13 @@ async def _run(args: argparse.Namespace) -> int:
             expected = {} if args.expect is None else {"expected": args.expect}
             if not args.apply:
                 preview = await client.async_preview_parameter_write(args.name, args.value, **expected)
-                _print({
+                report: dict[str, Any] = {
                     "outcome": "dry_run", "requested": preview.requested,
                     "parameter": preview.parameter.to_dict(),
-                })
+                }
+                if getattr(preview, "circuit_type_id", None) is not None:
+                    report["circuit_type_id"] = preview.circuit_type_id
+                _print(report)
             else:
                 result = await client.async_set_parameter(args.name, args.value, **expected)
                 _print(_write_report(result))
@@ -71,7 +82,7 @@ async def _run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Test hvclient telemetry, information and USER parameters; always daqOnly=true.",
+        description="Test hvclient telemetry and reviewed parameters; always daqOnly=true.",
         allow_abbrev=False,
     )
     parser.add_argument("host", help="bare boiler IP or hostname")
@@ -84,17 +95,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("pcb", help="read board temperature/voltage", allow_abbrev=False)
     commands.add_parser(
-        "list", help="read the USER catalog, including inactive settings", allow_abbrev=False
+        "list", help="read USER parameters and reviewed curves/modes, including hidden entries",
+        allow_abbrev=False,
     )
-    get = commands.add_parser("get", help="read selected USER API names", allow_abbrev=False)
+    get = commands.add_parser("get", help="read selected supported API names", allow_abbrev=False)
     get.add_argument("names", nargs="+")
     set_command = commands.add_parser(
-        "set", help="preview a reviewed numeric write, or apply it", allow_abbrev=False
+        "set", help="preview a reviewed parameter write, or apply it", allow_abbrev=False
     )
     set_command.add_argument("name")
-    set_command.add_argument("value", type=_number)
+    set_command.add_argument("value", type=_value, help="JSON number or schedule array; modes use ID 0..5")
     set_command.add_argument("--apply", action="store_true", help="send one update and verify")
-    set_command.add_argument("--expect", type=_number, help="expected current value; required to apply")
+    set_command.add_argument("--expect", type=_value, help="expected current value/program; required to apply")
     return parser
 
 

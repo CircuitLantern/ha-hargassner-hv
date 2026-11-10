@@ -60,6 +60,66 @@ def user_catalog():
     return {row["name"]: row for row in rows}
 
 
+def curve_catalog():
+    rows = {}
+    for zone, selector, radiator, floor, selected in (
+        ("1", "A1", "A2", "A2a", 2),
+        ("2", "A11", "A12", "A12a", 2),
+        ("A", "A61", "A62", "A62a", 0),
+    ):
+        rows[selector] = {
+            "name": selector, "securityLevel": "PLUMBER", "type": "CHOICE", "active": True,
+            "value": {"id": selected, "name": "Label is not authoritative"},
+        }
+        for name, choice in ((radiator, 1), (floor, 2)):
+            rows[name] = numeric(
+                name, value=0.6 if choice == 2 else 1.6,
+                securityLevel="PLUMBER", unit="", minimum=0.1, maximum=3.5, increment=0.1,
+                active=choice == selected, displayName={"1": "A2", "2": "A12", "A": "A62"}[zone],
+                helpText="Misleading translated profile label; do not use for routing",
+            )
+    return rows
+
+
+def mode_catalog():
+    rows = curve_catalog()
+    choices = [{"id": index, "name": label} for index, label in enumerate(
+        ("Off", "Automatic", "Reduced", "Comfort", "Once comfort", "Once reduced")
+    )]
+    for name, current in (("A1z", 3), ("A11z", 1), ("A61z", 0)):
+        rows[name] = {
+            "name": name, "type": "CHOICE", "securityLevel": "DEVELOPER", "active": False,
+            "choices": copy.deepcopy(choices), "value": copy.deepcopy(choices[current]),
+        }
+    return rows
+
+
+def schedule_catalog(*, weekly=False):
+    rows = mode_catalog()
+    rows["D9"] = {"name": "D9", "type": "BOOLEAN", "securityLevel": "PLUMBER",
+                  "active": True, "value": weekly}
+    for zone, daily, week in (("1", "3", "3a"), ("2", "6", "6a"), ("A", "HP3", "HP3a")):
+        present = zone != "A"
+        rows[daily] = {
+            "name": daily, "type": "DAILY_CLOCK_RANGE", "securityLevel": "USER",
+            "active": present and not weekly,
+            "value": [{"start": "06:00:00", "end": "09:00:00"},
+                      {"start": "00:00:00", "end": "00:00:00"}],
+        }
+        rows[week] = {
+            "name": week, "type": "WEEKLY_CLOCK_RANGE", "securityLevel": "USER",
+            "active": present and weekly,
+            "value": [
+                {"weekdays": [1, 2, 3, 4, 5], "time_ranges": [
+                    {"start": "06:00:00", "end": "09:00:00"},
+                    {"start": "00:00:00", "end": "00:00:00"}]},
+                {"weekdays": [6, 7], "time_ranges": [
+                    {"start": "08:00:00", "end": "10:00:00"}]},
+            ],
+        }
+    return rows
+
+
 @dataclass
 class Reply:
     status: int = 200
@@ -93,6 +153,7 @@ class Device:
         self.silent_rejection = False
         self.disconnect_after_write = False
         self.write_delay = 0
+        self.after_write = None
         self.block_write = False
         self.write_started = asyncio.Event()
         self.release_write = asyncio.Event()
@@ -158,7 +219,25 @@ class Device:
         assert set(entry) == {"name", "value"}
         name = entry["name"]
         if not self.silent_rejection:
-            self.catalog[name]["value"] = entry["value"]
+            if self.catalog[name]["type"] == "CHOICE":
+                value = entry["value"]
+                assert isinstance(value, dict) and set(value) == {"id"}
+                assert type(value["id"]) is int
+                choice = next((choice for choice in self.catalog[name]["choices"]
+                               if choice["id"] == value["id"]), None)
+                if choice is not None:
+                    self.catalog[name]["value"] = copy.deepcopy(choice)
+            else:
+                if self.catalog[name]["type"] == "DAILY_CLOCK_RANGE":
+                    assert len(entry["value"]) == len(self.catalog[name]["value"]) == 2
+                if self.catalog[name]["type"] == "WEEKLY_CLOCK_RANGE":
+                    assert 1 <= len(entry["value"]) <= 2
+                    for group in entry["value"]:
+                        assert set(group) == {"weekdays", "time_ranges"}
+                        assert all(r["start"] < r["end"] for r in group["time_ranges"])
+                self.catalog[name]["value"] = entry["value"]
+        if self.after_write is not None:
+            self.after_write(self)
         self.write_started.set()
         if self.block_write:
             await self.release_write.wait()
