@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Home Assistant-independent errors, without response bodies or credentials."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Firmware artifacts
 
 The firmware is not tracked in git. Keep the vendor archive and the extracted
@@ -43,3 +45,8 @@ sha256sum -c firmware/SHA256SUMS
 
 The checksums identify the exact artifacts the notes were derived from. They do
 not imply the files are safe to redistribute.
+
+The project MPL-2.0 licence covers the project-maintained documentation, not
+the vendor artifacts or generated decompilation/assembly. It grants no right
+to redistribute those inputs or use vendor trademarks/patents. See
+[`LICENSING.md`](../LICENSING.md) for scope and development provenance.

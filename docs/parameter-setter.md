@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Guarded parameter setter
 
 [`tools/set_parameter.py`](../tools/set_parameter.py) is a one-shot investigation

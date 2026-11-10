@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 import dataclasses
 import unittest
 from decimal import Decimal, localcontext

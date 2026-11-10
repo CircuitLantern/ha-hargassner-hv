@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Smart HV 2.7.4 — HTTP API reference (reverse-engineered)
 
 Scope: the service listening on **TCP/80** of the `smart_hv_2.7.4` firmware.

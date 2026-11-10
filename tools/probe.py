@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MPL-2.0
+
 """Read-only probe for the Hargassner Smart HV 2.7.4 HTTP API.
 
 Defaults to ``daqOnly=true``, which avoids requesting SERVICE mode and enables

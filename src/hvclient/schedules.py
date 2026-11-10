@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Reviewed heating-circuit comfort programs; controller-local, minute-resolution times."""
 
 from __future__ import annotations

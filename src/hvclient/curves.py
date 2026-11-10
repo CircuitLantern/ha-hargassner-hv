@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Reviewed heating-curve names and circuit/profile relationships, not general installer access."""
 
 from __future__ import annotations

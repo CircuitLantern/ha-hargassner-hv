@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Thin one-shot testing CLI: all protocol/validation work belongs to the library."""
 
 from __future__ import annotations

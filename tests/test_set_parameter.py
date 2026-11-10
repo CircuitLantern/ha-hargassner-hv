@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Offline wire-contract and policy tests; never connect to a real boiler."""
 
 import copy

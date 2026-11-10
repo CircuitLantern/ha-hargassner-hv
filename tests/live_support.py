@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Test-only opt-in and request guards; never installed as a console client."""
 
 from __future__ import annotations

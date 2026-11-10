@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: MPL-2.0
+
 # Repository pre-commit checks.
 #
 # Enable in a clone with:

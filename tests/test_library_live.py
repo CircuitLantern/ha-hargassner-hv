@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Opt-in hardware smoke test. Default discovery skips without opening a socket."""
 
 import os

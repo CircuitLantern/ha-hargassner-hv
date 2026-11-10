@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # `smart-web` — reverse-engineered component notes
 
 Scope: `smart_hv_2.7.4/data/smart-web/bin/smart-web`, analyzed from the existing

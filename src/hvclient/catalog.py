@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Catalog scope: USER plus explicit curve/mode exceptions, never whole levels."""
 
 from typing import Any

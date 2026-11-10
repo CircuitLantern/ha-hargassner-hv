@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Per-circuit mode IDs, never boiler-wide operating modes or SERVICE requests."""
 
 from __future__ import annotations

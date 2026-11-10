@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Immutable parameter, telemetry, and information values; no unit/timezone guesses."""
 
 from __future__ import annotations

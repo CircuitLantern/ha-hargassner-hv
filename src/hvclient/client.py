@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Guarded async HTTP client. Authentication never requests SERVICE mode."""
 
 from __future__ import annotations

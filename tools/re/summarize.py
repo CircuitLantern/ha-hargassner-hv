@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MPL-2.0
+
 """Summarize handler functions: string literals, statuses, direct calls."""
 import json, os, re, struct, sys
 from pathlib import Path

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Async telemetry, USER parameters and reviewed curve/mode controls; no HA dependency."""
 
 from .client import AsyncHargassnerClient

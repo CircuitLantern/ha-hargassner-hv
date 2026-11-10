@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Development plan — reusable Hargassner client and Home Assistant integration
 
 Status: the independent async library and thin testing CLI support **USER
@@ -571,6 +573,17 @@ Resolve these for the selected features, not for every vendor endpoint:
 
 Release gates:
 
+- [x] Standard MPL-2.0 licence, SPDX notices, package licence metadata, and
+      distributed agent-generation/scope/authorship notice added without
+      personal attribution, contributor location, or other identifying details.
+      This declaration is not a determination that every generated portion
+      is copyrightable or that copyleft is enforceable over it.
+- [ ] Applicable AI-provider terms and third-party provenance checked before
+      distribution; qualified software/IP advice if enforceable
+      reciprocity is a requirement. See [the provenance note](../LICENSING.md).
+- [ ] Publication privacy reviewed across project text, fixtures, diagnostics,
+      package artifacts, archive headers, and Git identity metadata; no private
+      contributor or device-owner identifying/location information disclosed.
 - [ ] Independent library release with read contract/fault tests and no HA imports.
 - [ ] Optional CLI uses only public library methods and introduces no new safety bypass.
 - [ ] HA setup, polling, availability, recovery, reload, and unload tests pass.

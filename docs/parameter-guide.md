@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Smart HV parameters — English interpretation and manual crosswalk
 
 This guide explains what the HTTP parameters control, rather than just how to

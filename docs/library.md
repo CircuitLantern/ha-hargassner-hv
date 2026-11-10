@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Independent Hargassner client library
 
 `hargassner-hvclient` provides the `hvclient` Python package. It is an async
@@ -826,3 +828,9 @@ new requests. A Home Assistant integration, other device routes, non-GET
 telemetry/identity operations, higher-level parameters outside the six slope/three mode
 exceptions, non-circuit schedules, and other structured writes
 are outside this implementation.
+
+## Licence
+
+**MPL-2.0.** The standard `LICENSE` and detailed `LICENSING.md` scope/provenance
+notice are included in source and wheel distributions. In installed wheels,
+they are in the distribution's `.dist-info/licenses/` directory.

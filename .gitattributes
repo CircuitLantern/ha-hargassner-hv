@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 # Normalize text files to LF in the repository.
 * text=auto eol=lf
 

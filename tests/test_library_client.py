@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 """Async client contract tests against a real HTTP server bound only to loopback."""
 
 import asyncio
