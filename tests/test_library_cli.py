@@ -36,6 +36,23 @@ class CLIAndConfigurationTests(unittest.TestCase):
         self.assertIn("## Agent-generated development", notice)
         self.assertIn("copyleft enforcement", notice)
 
+    def test_distributed_readme_leads_with_capabilities_not_project_instructions(self):
+        readme = distribution("hargassner-hvclient").metadata.get_payload()
+        overview = readme.split("## Install", 1)[0]
+        self.assertIn("## Capabilities", overview)
+        for capability in ("Runtime channels", "Device information", "PCB diagnostics",
+                           "11 USER temperatures", "6 heating-curve slopes",
+                           "3 circuit-mode parameters", "6 daily/weekly comfort programs",
+                           "Other USER parameters"):
+            with self.subTest(capability=capability):
+                self.assertIn(capability, overview)
+        self.assertLess(readme.index("## Capabilities"), readme.index("## Quick start"))
+        self.assertLess(readme.index("## Quick start"), readme.index("## Licence"))
+        self.assertIn("## API at a glance", readme)
+        self.assertNotIn("## Publication privacy", readme)
+        self.assertNotIn("## Copyright and enforceability", readme)
+        self.assertNotIn("## Licence and development provenance", readme)
+
     def test_library_modules_carry_spdx_notices(self):
         import hvclient
 

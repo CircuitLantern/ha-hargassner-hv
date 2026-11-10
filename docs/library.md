@@ -2,39 +2,94 @@
 
 # Independent Hargassner client library
 
-`hargassner-hvclient` provides the `hvclient` Python package. It is an async
-client for the local Hargassner HTTP API, with no Home Assistant dependency.
-It supports USER parameters, six heating-curve and three circuit-mode exceptions, and
-**read-only `/channels`, `/info`, and `/pcb`**.
-Python 3.11+ and aiohttp 3.12+ are required.
+`hargassner-hvclient` provides **`hvclient`**, an independent async Python
+library for reading Hargassner boiler telemetry and changing reviewed heating
+settings over the local HTTP API. It includes the thin **`hvctl`** testing CLI
+and has no Home Assistant dependency. Python 3.11+ and aiohttp 3.12+ are required.
 
-It **always authenticates with `daqOnly=true`**, including recovery. There is
-no SERVICE-mode flag or fallback, higher-level catalog option, raw endpoint
-method, or mode-restoration request. It cannot detect or undo SERVICE entered
-by another client, nor guarantee undocumented behavior on arbitrary firmware.
+## Capabilities
+
+| Data or control | Read | Write |
+|---|---|---|
+| Runtime channels: measured inputs, calculated targets, demand, actuator signals, and raw state/fault codes | Dynamic numeric snapshot | No |
+| Device information: firmware version and identity fields | Typed `SystemInfo` | No |
+| PCB diagnostics: internal temperature and voltage readings | Typed `PcbInfo` | No |
+| 11 USER temperatures: comfort/reduced room targets, DHW targets, outdoor shutdown thresholds | Values and live limits | Explicit opt-in |
+| 6 heating-curve slopes for radiator/underfloor profiles | Both variants per circuit | Explicit opt-in; active configured profile only |
+| 3 circuit-mode parameters, each with 6 choices: Off, Automatic, permanent/one-time comfort or reduced | Choice IDs and labels | Explicit opt-in; configured circuit only |
+| 6 daily/weekly comfort programs for circuits 1, 2, and A | Structured time windows and weekdays | Explicit opt-in; full replacement of the selected variant |
+| Other USER parameters: choices, booleans, text, clock values, and other schedules | Typed immutable values | No |
+
+Callers also get **numeric bounds/increments, choice lists, English circuit
+meanings, zone-keyed control registries, and queryable schedule limits**.
+Availability depends on the controller's current configuration; a supported
+parameter name does not establish that its circuit or optional hardware exists.
+
+**Writes are disabled by default.** `WritePolicy.only(...)` enables a subset of
+the 26 reviewed write names, never arbitrary installer/developer access.
+Writes validate current metadata and context, submit one parameter, and verify
+the response plus a separate read-back. Uncertain writes are never replayed.
+Authentication always uses **`daqOnly=true`**; no operation requests SERVICE mode
+or implicitly changes global daily/weekly scheduling, circuit type, or limits.
+
+- [Telemetry and device reads](#read-channels-device-info-and-board-diagnostics)
+- [Parameter values and metadata](#read-parameters)
+- [Temperature, curve, mode, and program writes](#explicitly-permitted-writes)
+- [Queryable schedule limits](#queryable-schedule-limits)
+- [Sessions and lifecycle](#sessions-and-lifecycle)
+- [CLI](#thin-testing-cli)
+- [Compatibility and tests](#verification-and-scope)
 
 ## Install
 
+From a source checkout or unpacked source distribution:
+
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
+.venv/bin/python -m pip install .
 ```
 
-The package is independently installable. It imports neither the research tools
-nor Home Assistant, and it has no storage, polling daemon, or background tasks.
+Dependencies are aiohttp and yarl. The package imports neither the research
+tools nor Home Assistant. It has no persistent storage, polling daemon, or
+background tasks; applications decide when to call it.
 
-## Read channels, device info, and board diagnostics
+## Quick start
 
 ```python
+import asyncio
 from hvclient import AsyncHargassnerClient
 
-async def read_snapshots(host):
+async def main(host):
     async with AsyncHargassnerClient(host) as client:
         channels = await client.async_get_channels()
+        daytime = await client.async_get_parameter("4")
         info = await client.async_get_info()
         pcb = await client.async_get_pcb()
-        return channels, info.software_version, pcb.internal_temperature
+        print(channels.get("aussentemperatur"))  # raw channel value, if present
+        print(daytime.value, daytime.unit, daytime.minimum, daytime.maximum)
+        print(info.software_version)
+        print(pcb.internal_temperature, pcb.internal_voltage)
+
+asyncio.run(main("boiler.example"))  # replace with the boiler's host
 ```
+
+The host is a bare hostname/IP, not a URL; pass the port separately if needed.
+This example only reads. The context manager handles authentication and cleanup.
+
+## API at a glance
+
+| Async method | Result |
+|---|---|
+| `async_get_channels()` | `ChannelSnapshot`: channel name → finite number |
+| `async_get_info()` | `SystemInfo`: firmware/version and optional identity strings |
+| `async_get_pcb()` | `PcbInfo`: two board diagnostic readings |
+| `async_get_parameters(names=None)` | `dict[str, Parameter]`; all supported entries or a selected subset |
+| `async_get_parameter(name)` | One `Parameter`, including its value and metadata |
+| `async_preview_parameter_write(name, value, expected=...)` | `WritePreview`; validates without a parameter POST |
+| `async_set_parameter(name, value, expected=...)` | `WriteResult`; unchanged or verified, otherwise a typed exception |
+| `async_close()` | Closes the client without changing controller state |
+
+## Read channels, device info, and board diagnostics
 
 All three methods use GET with no body and share the same authentication,
 cookie refresh, operation lock, timeouts, response-size bound, and bounded read
@@ -98,9 +153,8 @@ for every channel's scale, units, state codes, or control algorithm**.
 | Module and controller diagnostics | `hka_connected_channel`, `hkm_connected_channel`, `fs_space_remaining`, `sys_mem_used`, `sys_mem_available`, `temperatur_platine`, `spannung_platine` | Expansion-module connection indications, filesystem/memory diagnostics, and board-monitor signals; not a complete hardware inventory or a validated overall-health assessment |
 
 Use `channels[name]`, `.get()`, `.items()`, or `.to_dict()`. Names are discovered
-from each response, not a fixed model field list. The captured unit had 125
-names; this is **not** a guaranteed count or mandatory set on other units,
-firmware versions, configurations, or subsequent reads. Presence of an optional
+from each response, not a fixed model field list. Names and counts can vary with
+firmware, configuration, and subsequent reads. Presence of an optional
 subsystem's channel alone does not establish that its hardware is installed or
 its reading is valid. An empty map is a valid empty snapshot.
 
@@ -148,10 +202,9 @@ wire-shaped copy; an earlier snapshot does not mutate as later reads occur.
 Separate endpoint calls are not an atomic combined plant snapshot. Polling and
 history, if desired, belong to the caller or Home Assistant, not the library.
 
-The response shapes come from the analyzed 2.7.4 implementation and local
-captured JSON from a unit previously reporting 3.4.0. Channel examples above
-are observational, not a fixed firmware contract or new live validation of the
-async client. A well-formed number or version string alone does not establish
+The response shapes were reviewed against 2.7.4 firmware and 3.4.0 responses.
+Channel examples are observational, not a fixed firmware contract.
+A well-formed number or version string alone does not establish
 sensor calibration, hardware presence, safe operation, or firmware compatibility.
 
 There are no channel/identity/PCB setters. The request boundary allows only the
@@ -212,12 +265,56 @@ permission. For the three mode exceptions, false deliberately means UI-hidden,
 not an absent circuit; the mode policy checks configured circuit presence
 separately. USER is not a network permission or safety guarantee.
 
+| `Parameter` attribute | Available information |
+|---|---|
+| `.value`, `.type`, `.unit` | Decoded value, firmware type, and supplied unit |
+| `.minimum`, `.maximum`, `.increment` | Live numeric acceptance bounds and step, when supplied |
+| `.choices`, `.true_text`, `.false_text` | Choice IDs/localized labels and boolean display labels |
+| `.active`, `.security_level` | Firmware applicability/visibility and catalog classification |
+| `.meaning` | Reviewed English zone/purpose/label/description for circuit modes and programs; otherwise `None` |
+| `.schedule_limits` | Static SDK limits for the six circuit programs; otherwise `None` |
+| `.to_dict()` | Detached wire-shaped data, without library meanings or limits added |
+
 ## Explicitly permitted writes
 
 Writes are **denied by default**. Only the 11 USER temperatures, six dimensionless
 slopes, three circuit-mode choices, and six USER circuit programs below can be enabled.
 The caller chooses a subset with
 `WritePolicy.only(...)`; it cannot opt into arbitrary names.
+
+### Preview and apply a permitted USER temperature change
+
+```python
+from hvclient import AsyncHargassnerClient, WritePolicy
+
+async def intentional_change(host, requested, expected):
+    async with AsyncHargassnerClient(host, write_policy=WritePolicy.only("4")) as client:
+        preview = await client.async_preview_parameter_write("4", requested, expected=expected)
+        # Inspect/confirm before applying. Preview never sends a parameter POST.
+        result = await client.async_set_parameter("4", requested, expected=expected)
+        return result
+```
+
+Both preview and set read current metadata and validate the proposed value.
+Numeric writes require an active parameter, the reviewed type/unit, finite
+values, live bounds, and an exact minimum-anchored increment grid; values are
+not rounded or clamped. INTEGER settings require int, not bool or float.
+Circuit modes and programs have the additional context checks described below.
+
+| Write category | `expected=` for actual writes |
+|---|---|
+| USER temperatures | Optional in Python; required by the CLI |
+| Heating-curve slopes | Required current slope |
+| Circuit modes | Required current integer/enum mode ID |
+| Circuit programs | Required current full program, e.g. `current.value` |
+
+`expected` is a stale-value check, not atomic compare-and-set. Previews remain
+available without it. Unchanged values return `outcome="unchanged"` without a
+POST. A change sends one sparse `name`/`value` entry, checks the returned object,
+and performs a separate GET. Success returns `WriteResult` with
+`.before`, `.returned`, `.after`, `.requested`, `.outcome`, and `.write_status`;
+`.verified` and `.read_back_matches` summarize the result. Physical effects and
+reboot persistence are not established by stored-value verification.
 
 ### Meaning of the USER temperature parameters
 
@@ -272,15 +369,9 @@ not establish that optional hardware is fitted. The library refuses inactive
 writes and obtains limits/increments from current metadata rather than treating
 any captured range as a commissioning recommendation.
 
-**Evidence:** these meanings are English paraphrases of the Smart-HV 17–23
-service manual, **DE V03, 03/2021, p. 3**, with operating dependencies described
-on pp. 4–5 and 8. API names/types are cross-matched to the locally captured
-3.4.0 catalog; a menu number is not itself a wire identifier. Meanings do not
-prove a setter's behavior on every firmware. Only `4` has recorded live
-write/read-back evidence, from the earlier research setter; the new async
-library has not been live-tested, and physical effects/reboot persistence remain
-unverified. This section is not a commissioning procedure or a set of suggested
-temperatures.
+These English meanings follow the Smart-HV 17–23 service manual, DE V03,
+03/2021, pp. 3–5 and 8, cross-matched to the API catalog. They describe the
+settings, not recommended temperatures or guaranteed behavior on every firmware.
 
 ### Heating-curve slopes: narrow installer exceptions
 
@@ -355,16 +446,6 @@ atomic against another client or local UI changes. No curve has been live-writte
 with this library; installation effects, profile behavior on other firmware,
 and persistence remain **VERIFY**. No recommended slope or tuning algorithm is
 supplied.
-
-**Evidence:** SHB DE V03, 03/2021, p. 4 describes the slope settings. In 2.7.4,
-`HvHeizkreis::internalInitializeParameters` (`0x3aa2c`) selects the underfloor
-`a` variant for circuit type ID 2 and the unsuffixed variant otherwise, storing
-the slope at object offset `0x40`. These branches were checked in assembly.
-`HeizkreisBase::CalcHeizkreisSoll` (`0x146388`) reads that slope during normal
-flow-target calculation, with configured min/max bounds and other adjustments.
-The provider defines ordinary dimensionless floating-point parameters; no
-SERVICE-mode request was found in the reviewed slope initialization/calculation
-path. This is code evidence, not a live safety/commissioning validation of 3.4.0.
 
 `NUMERIC_USER_WRITES` remains the original 11-name USER subset;
 `HEATING_CURVE_WRITES` contains these six exceptions and `NUMERIC_WRITES` is
@@ -505,18 +586,10 @@ units, the plant's state, and protection logic. Stored choice read-back does
 not prove pump/valve behavior or that the whole boiler is in normal mode. The
 checks are not atomic against other clients. No live mode write is recorded.
 
-**Evidence:** the captured 3.4.0 catalog and 2.7.4 provider agree on the three
-names, DEVELOPER classification, hidden flag, and six choice IDs. The 2.7.4
-choice updater (`0x96490`, virtual slot `+0x38`) calls the object/ID parser at
-`0x179064`; the choice setter (`0x96cf8`) validates membership and emits the
-change signal without an active-state gate. `internalPostInitialize`
-(`0x147860`) binds these changes to `setHKModus` (`0x14687c`); `AblaufWork`
-(`0x148d84`) implements the six circuit modes. Critical parser/callback/state
-branches were checked against assembly. `Hk1Status`/`Hk2Status`/`HkAStatus`
-carry the circuit-mode IDs in that code; `Hk*Zustand` uses a different runtime
-state enumeration. Channel reads still return raw numbers, not automatic enum
-conversion or an authoritative whole-boiler system-mode read-back. Physical
-effects, interactions, and behavior on deployed firmware remain **VERIFY**.
+In the reviewed firmware, `Hk1Status`/`Hk2Status`/`HkAStatus` carry circuit-mode
+IDs; `Hk*Zustand` uses a different runtime state enumeration. Channel reads
+still return raw numbers, not automatic enum conversion or an authoritative
+whole-boiler mode decoder.
 
 `CIRCUIT_MODE_WRITES` lists the three mode exceptions. With the six circuit
 programs below, `PARAMETER_WRITES` is the complete 26-name union; explicit
@@ -610,7 +683,7 @@ switch an inactive program into use.
 programs. The SDK reads it only as internal validation context and **never
 writes or automatically switches it**. A weekly program can be written only
 when the controller is already configured for weekly programs, and daily only
-in daily mode. The captured unit was in daily mode. Set the global preference
+in daily mode. Set the global preference
 deliberately at the controller if weekly operation is wanted; this is not a
 per-zone toggle. D5/E12's day-versus-night setback classification is a different
 setting and is not changed either.
@@ -696,53 +769,6 @@ do not submit an entire GET metadata object. Mode/numeric CLI inputs keep their
 existing scalar format. `CIRCUIT_SCHEDULE_WRITES` is the six-name writer subset;
 boiler/DHW/FWS schedules, D9, D5, and other structured values remain unwritable.
 
-**Evidence:** SHB DE V03, 03/2021, pp. 3 and 5 describes circuit schedules and
-the daily/weekly selector. The 2.7.4 `HeizkreisBase::checkApproval` (`0x146160`)
-uses D9 to select the daily/weekly program; the initialization binds 3/3a,
-6/6a and HP3/HP3a. Weekday evaluation (`0x198ef4`) compares numeric days with
-`QDate::dayOfWeek`; time evaluation (`0x17d6c8`) uses local current time.
-The daily/weekly parsers (`0x17da14`, `0x199cf0`) accept the arrays described
-above. The daily validator (`0x17d864`) uses the existing slot count; the weekly
-validator (`0x1996a8`) permits only one or two groups. Critical comparisons and
-bounds were checked against assembly. Captures confirm field shapes, not live
-schedule-write compatibility. No live schedule change, physical-effect test,
-or reboot-persistence test has been performed with the library.
-
-### Preview and apply a permitted USER temperature change
-
-```python
-from hvclient import AsyncHargassnerClient, WritePolicy
-
-async def intentional_change(host, requested, expected):
-    async with AsyncHargassnerClient(host, write_policy=WritePolicy.only("4")) as client:
-        preview = await client.async_preview_parameter_write("4", requested, expected=expected)
-        # A preview never sends a parameter POST. Confirmation belongs to the caller.
-        result = await client.async_set_parameter("4", requested, expected=expected)
-        return result.after.value
-```
-
-Every proposed write re-reads and validates the reviewed metadata. Numeric
-writes require active=true, type/unit, finite values, live bounds, and the
-minimum-anchored increment grid without rounding/clamping. The exact mode
-exceptions instead require the hidden-choice contract and configured circuit
-described above. INTEGER
-settings require int, not bool or float. False and zero are not treated as
-missing values; booleans are deliberately not numeric inputs.
-
-`expected` is a stale-value check: a mode ID for circuit modes, numeric otherwise.
-It is mandatory for curve/mode writes and optional for USER temperatures;
-schedules require the expected current full program. It is
-not atomic compare-and-set.
-Unchanged values return `outcome="unchanged"` without a POST. A change sends
-only one sparse `name`/`value` entry, checks the POST-returned object, and then
-performs a separate GET. Success returns `WriteResult` with before/returned/after
-parameters, outcome, and status. Persistence and physical effects are not proven.
-
-Other schedules, dates, other choices, text, ordinary booleans, ignition, boiler-wide
-mode controls, and other installer/service/developer tuning are **read-only or excluded**, not
-implicitly writable because their catalog level says USER. No batch setter,
-automatic rollback, or stored-request replay is provided.
-
 ### Unverified outcomes and errors
 
 `HargassnerError` is the common base. Specific errors distinguish transport,
@@ -815,19 +841,59 @@ are not imported by the library or the intended Home Assistant integration.
 
 ## Verification and scope
 
+The contract was reviewed against 2.7.4 firmware and 3.4.0 responses. Live
+reads and previews have passed on firmware reporting `smart_hv_3.4.0`.
+The library's actual writes, physical heating effects, and reboot persistence
+remain unverified on hardware. Synthetic tests cover serializers, validation,
+read-back, silent rejection, authentication recovery, and uncertain outcomes;
+passing them is not a guarantee of compatibility with every installation.
+
+Not provided:
+
+- General installer/developer access, arbitrary endpoint calls, boiler-wide
+  mode changes, ignition, direct actuator commands, or identity mutations.
+- Writes to other schedules, ordinary booleans, dates, text, circuit-type
+  selectors, global D9 selection, or flow-temperature limits.
+- Automatic channel-unit/state-code decoding, authoritative hardware
+  discovery, batch transactions, write replay, or rollback.
+- A Home Assistant integration, recurring polling, historical storage, or a
+  background service. Those remain the responsibility of a separate consumer.
+
+`daqOnly=true` avoids requesting SERVICE, but is not a server-side read-only
+permission. The library cannot detect or undo SERVICE entered by another
+client, or restore a whole-boiler operating mode.
+
+### Offline tests
+
+From a source checkout or unpacked source distribution:
+
 ```bash
-.venv/bin/python -B -m unittest discover -s tests -v
+.venv/bin/python -m pip install -e '.[test]'
+HVCLIENT_LIVE=0 .venv/bin/python -B -m unittest discover -s tests -v
 ```
 
-Tests use synthetic data and loopback mock HTTP servers, not a boiler. The
-[earlier live round trip](parameter-setter.md#live-validation--2026-11-09)
-validated the research setter, **not this new async implementation**. No live
-library requests or writes are implied by installation or tests. The added
-telemetry/info/PCB decoders are also checked against local captured JSON, not
-new requests. A Home Assistant integration, other device routes, non-GET
-telemetry/identity operations, higher-level parameters outside the six slope/three mode
-exceptions, non-circuit schedules, and other structured writes
-are outside this implementation.
+The offline suite uses synthetic data and loopback HTTP servers. Hardware
+tests are skipped by default; `HVCLIENT_LIVE=0` explicitly keeps them disabled.
+
+### Optional hardware smoke test
+
+The source distribution includes an optional read/preview smoke test:
+
+```bash
+HVCLIENT_LIVE=1 HVCLIENT_LIVE_HOST=boiler.example \
+  .venv/bin/python -B -m unittest tests.test_library_live -v
+```
+
+Replace `boiler.example` with an explicit bare hostname/IP. The test runs
+serially on HTTP port 80, reads the supported endpoints, previews representative
+active controls, checks inactive-program refusal and public limits, and rereads
+the previewed settings. Extra guards prohibit setters and parameter POSTs;
+only `daqOnly=true` authentication may POST. Each request has a 10-second
+timeout and authentication attempts are bounded. No captures are saved.
+
+Both enable flag and host are required. CI/pytest-xdist workers are refused.
+Concurrent local UI/client changes or one-time mode transitions can legitimately
+fail the final comparison; the test does not retry or restore settings.
 
 ## Licence
 
