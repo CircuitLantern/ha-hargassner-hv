@@ -1,0 +1,273 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
+# Home Assistant — Hargassner Smart HV
+
+The **`hargassner_hv`** custom integration connects Home Assistant directly to
+the boiler's LAN HTTP API through the independently packaged `hvclient` library.
+It targets **Home Assistant 2026.11.1**, with a HACS-compatible repository layout.
+No cloud, MQTT bridge, custom dashboard, or separate polling service is needed.
+
+## Capabilities
+
+| Feature | Behavior |
+|---|---|
+| Config flow | Host/port entry, read-only validation, stable device identity, duplicate prevention |
+| Reconfiguration | Changes host/port only after verifying the same controller identity |
+| Parameter sensors | Reviewed temperatures, slopes, circuit modes, and daily/weekly programs |
+| Number controls | 11 temperature settings and 6 slopes, individually opted in |
+| Mode selects | Circuit 1/2/A: Off, Automatic, permanent reduced/comfort, one-time reduced/comfort |
+| Program action | Preview or replace one circuit's full daily/weekly comfort program |
+| Raw channels | Optional dynamically registered diagnostic sensors, disabled by default |
+| PCB diagnostics | Optional raw temperature/voltage readings, disabled by default |
+| Diagnostics download | Whitelisted health/configuration flags, not device IDs, addresses, readings, or schedules |
+
+**All writes are off by default.** The integration's supported calls were
+curated to avoid initiating the boiler's **SERVICE mode**.
+Setup, polling, saving options, reload, recovery, and unload do not write
+settings. The production integration uses only the
+library's public methods; no protocol or setter implementation is duplicated.
+It cannot detect or clear a boiler-wide SERVICE condition entered by another
+client, and never attempts to restore an assumed operating mode.
+
+This is not a `climate` entity or thermostat algorithm. Other USER values and
+unreviewed installer settings are not automatically exposed as controls.
+
+## Installation status
+
+The layout and local implementation are ready for development/testing, but a
+normal public HACS installation is **not release-ready yet**:
+
+1. `hargassner-hvclient==0.1.0` must be published to the package index. It is
+   pinned in the integration manifest but is currently available only locally.
+2. Replace the reserved `example.invalid` documentation/issue URLs with approved
+   public project URLs and assign a public project owner/team in `codeowners`.
+   No account or repository identity is assumed by this checkout.
+3. Supply appropriately licensed brand assets required by the distribution
+   channel and run its release validators. No vendor logo is bundled.
+4. Validate installation on the intended HA deployment and complete controlled
+   hardware checks before enabling production control automations.
+
+`hacs.json` specifies the minimum tested HA version. Only
+`custom_components/hargassner_hv/` is integration runtime code; the library
+remains a separately installed/versioned requirement. It is not vendored into
+that directory, and the library distributions exclude HA code and tests.
+
+### Local development installation
+
+In the **same Python environment that runs Home Assistant**, install the SDK
+from this checkout or its built wheel:
+
+```bash
+python -m pip install .
+```
+
+Copy `custom_components/hargassner_hv/` into the HA configuration directory's
+`custom_components/` directory, then restart HA. During Core/venv development,
+the documented HA library-development override can also be used:
+
+```bash
+hass --skip-pip-packages hargassner-hvclient -c '<config-directory>'
+```
+
+Installing on the host's Python does not install into a separate HA container
+or appliance environment. Until the SDK is published, this is a developer
+installation path, not a one-click HA OS/HACS installation promise. Do not
+remove the manifest requirement or copy SDK source into the integration as a
+workaround.
+
+In HA, choose **Settings → Devices & services → Add integration → Hargassner
+Smart HV**, then enter the bare host and HTTP port. No password is required.
+The connection is plain HTTP and belongs on a trusted LAN.
+
+## Identity, updates, and availability
+
+Identity prefers a valid controller-reported MAC, then a system ID or serial
+fallback. The selected identity is hashed and retained independently of the
+host; a hostname/IP is never used as a unique ID. Missing identity prevents
+setup. Reconfiguration and controls verify the configured identity instead of
+silently reassigning an entry to another device. This is software identity
+checking, not cryptographic device authentication.
+
+One client is shared by all entities/coordinators for an entry, borrowing HA's
+managed aiohttp session. The library serializes its HTTP operations.
+
+| Data | Interval |
+|---|---|
+| Channels | 30 seconds when the raw-channel view has listeners |
+| Parameters and identity | 300 seconds |
+| Optional PCB diagnostics | 60 seconds when diagnostic entities have listeners |
+
+Initial parameter/channel reads complete before platforms are loaded. Optional
+PCB failures do not block healthy main telemetry. Failed updates make the
+affected entities unavailable; successful polling restores availability.
+Each request has a 10-second timeout, no transport read retry, and bounded
+connection recovery. Temporary connection failures are handled through normal
+polling using the same curated read-only calls.
+
+Unload removes platform listeners, shuts down coordinators, cancels in-flight
+control operations, and closes the SDK client without closing HA's shared
+session. A cancelled write may already have applied; it is not replayed or
+rolled back. No last requested setpoint/program is restored at startup.
+
+## Sensors and controls
+
+Parameter sensors use reviewed English labels and controller circuit designations
+`1`, `2`, and `A`, not inferred room names. Configured/active settings are enabled
+by default; inactive alternatives are registered disabled. A program's sensor
+state is `active`/`inactive`, meaning firmware applicability, **not heating now**.
+Its `program` attribute contains the full current wire-shaped array; `limits`
+contains the library's immutable reviewed write-policy limits.
+
+For USER temperatures, the unit and temperature device class are used only
+with the expected live Celsius metadata. These are targets/thresholds, not
+measured room temperatures. Slopes are dimensionless. No sensor is assigned
+an energy/cumulative state class.
+
+Raw channel and PCB units/scales have not been comprehensively verified. These
+sensors have **no inferred unit, device class, or statistics state class** and
+are explicitly labelled raw diagnostics. Enable the corresponding integration
+option, then enable only the diagnostic entities wanted. Unknown channel names
+are not guessed to be booleans, temperatures, energy counters, or operating modes.
+
+### Opt in to writes
+
+Open the integration's **Configure** options, select specific settings in
+**Allow writes to these settings**, and acknowledge the operational risk.
+Saving options reloads the integration; it does not apply any setting.
+
+- Selected numeric settings become `number` entities with live min/max/step.
+  Integer SDK parameters are sent as integers, never truncated fractions.
+- Selected circuit modes become `select` entities using stable mode IDs, not
+  translated controller labels. Unconfigured circuits remain unavailable.
+- Selected programs become eligible for the dedicated action below; there is
+  no arbitrary API-name/value service.
+- Removing opt-in prevents further control calls, including through stale entity
+  objects after reload. Presence in the parameter catalog is not permission.
+
+The SDK rereads metadata, validates the configured circuit/profile, and checks
+expected current values before posting one sparse change. For number/select
+entities, the expected value comes from the current coordinator snapshot.
+Stored state changes are shown only from verified read-back, never by assigning
+the requested value optimistically. Full refreshes then reconcile the catalog.
+
+Stale state, inactive profiles, context changes, or uncertain responses raise
+HA errors. A matching later value does not turn a lost POST into a verified
+write. No exception path replays, re-arms, or rolls back a setting. Inspect and
+refresh before another intentional command. One-time circuit modes follow
+controller schedule transitions; the integration does not implement a timer.
+
+The integration's diagnostics payload excludes configuration dictionaries,
+raw snapshots, identifiers, addresses, readings, and schedules. HA may add
+its own system/environment metadata around a diagnostics download; inspect
+the complete download before sharing it. Hashing device identity is not a
+promise that an identifier is safe to publish. Success flags describe the last
+update attempt, not a new reachability check; disabled diagnostics do not poll.
+
+## Circuit program action
+
+Use **`hargassner_hv.set_circuit_program`** in Developer Tools → Actions or an
+automation. It is admin-only and targets **exactly one controller device**.
+The chosen program must be explicitly opted in. Fields:
+
+| Field | Meaning |
+|---|---|
+| `device_id` | HA device-registry ID selected in the UI; required, no default device |
+| `circuit` | `"1"`, `"2"`, or `"A"` |
+| `kind` | `daily` or `weekly`, already selected globally at the controller |
+| `program` | Daily `{time_ranges: [...]}` or weekly `{groups: [...]}` |
+| `expected` | Full current program in the same object shape; required to apply |
+| `preview_only` | Defaults to `true`; set `false` only for an intentional apply |
+
+Daily preview (syntax only; replace the device placeholder):
+
+```yaml
+action: hargassner_hv.set_circuit_program
+data:
+  device_id: <selected-controller-device-id>
+  circuit: "1"
+  kind: daily
+  preview_only: true
+  program:
+    time_ranges:
+      - start: "06:00"
+        end: "09:00"
+      - start: "16:00"
+        end: "22:00"
+response_variable: program_preview
+```
+
+The optional response contains `outcome: preview`, the normalized `requested`
+array, the live `current` array, and public `limits`. No parameter POST is sent.
+For an apply, also supply `expected: {time_ranges: <complete-current-array>}`
+and `preview_only: false`. Copy all current windows, not only one changed
+interval. The action returns verified/unchanged status when response data is
+requested; failures are exceptions, not successful response codes.
+
+A weekly replacement uses this `program` shape:
+
+```yaml
+groups:
+  - weekdays: [1, 2, 3, 4, 5]
+    time_ranges:
+      - start: "06:00"
+        end: "09:00"
+      - start: "16:00"
+        end: "22:00"
+  - weekdays: [6, 7]
+    time_ranges:
+      - start: "08:00"
+        end: "22:00"
+```
+
+Weekly `expected` uses the same `groups` key with the complete current program.
+Days are ISO/Qt **1 Monday through 7 Sunday**; all seven must appear exactly
+once across one/two groups, with at most two windows per group. Times are the
+**controller's local wall clock**, at minute resolution. No HA timezone/DST
+conversion is performed. `24:00` is end-only; overnight/overlapping ranges are
+rejected. Empty windows mean reduced operation in Automatic, not circuit Off.
+
+This replaces a complete program, not a partial interval patch. The SDK pads
+daily slots and strips weekly unused zero-length slots. The limits are reviewed
+SDK policy, not advertised hardware capabilities or a caller override. Global
+`D9`, circuit type, flow limits, and operating mode are never implicitly changed.
+Weekly requests are refused while daily scheduling is selected, and vice versa.
+
+## Testing and validation boundary
+
+The HA suite uses the actual pinned HA core, config-entry/flow managers,
+coordinators, registries, entities, and services. It has separate Python 3.14
+dependencies and does not add HA to the SDK's runtime or normal test environment:
+
+```bash
+uv venv --python 3.14 .venv-ha
+uv pip install --python .venv-ha/bin/python -r tests/ha/requirements.txt -e .
+.venv-ha/bin/python -B tests/ha/run.py -q
+```
+
+The launcher loads HA before pytest's plugins and selects only the required
+async/socket/timeout plugins, avoiding ambient test-helper version mismatches.
+Fixtures initialize real HA registries and a managed session with a test-only
+non-discovery resolver. SDK mocks and loopback HTTP devices provide synthetic
+data; non-loopback sockets are disabled. The loopback tests exercise
+HA → SDK → HTTP, including full program serialization, unchanged modes, lost
+POST responses, strict authentication, and zero implicit global configuration
+changes. No real boiler is contacted by this suite.
+
+Default SDK tests remain independent:
+
+```bash
+HVCLIENT_LIVE=0 .venv/bin/python -B -m unittest discover -s tests -q
+```
+
+Live SDK reads/previews have been smoke-tested separately; actual SDK writes,
+physical effects, and reboot persistence remain unverified. The integration
+has not been installed on a live HA/controller deployment. Opt-in controls are
+implemented and synthetically tested, **not production hardware validation**.
+No hardware request, publication, push, or setting change is implied by installing
+the source or running these tests.
+
+## Licence
+
+MPL-2.0; see the repository's `LICENSE` and `LICENSING.md`. Third-party material
+and dependencies retain their own licences. This unofficial integration is
+not vendor endorsement or a safety certification.

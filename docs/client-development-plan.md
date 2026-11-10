@@ -4,8 +4,10 @@
 
 Status: the independent async library and thin testing CLI support **USER
 parameters, six heating-curve slope and three circuit-mode exceptions, and read-only channels,
-device info, and PCB diagnostics**. Home
-Assistant integration and the wider roadmap below remain planned. See the
+device info, and PCB diagnostics**. A separate Home Assistant custom integration
+now implements config flow, coordinators, sensors, opt-in numeric/mode controls,
+and a guarded full-program action against HA 2026.11.1. It has synthetic/loopback
+coverage, not live deployment or write validation. See [the integration guide](home-assistant.md) and the
 [implemented API](library.md). Other installer-level parameters, identity mutation,
 and other device routes are not part of the current delivery.
 
@@ -28,9 +30,9 @@ hardware/endpoint operations.
 
 | Deliverable | Responsibility | Dependencies |
 |---|---|---|
-| Python library (`hvclient`, distribution `hargassner-hvclient`) | Async HTTP/auth, typed telemetry/info/PCB and USER parameters, validation, guarded numeric writes, errors | No Home Assistant imports or runtime dependency |
+| Python library (`hvclient`, distribution `hargassner-hvclient`) | Async HTTP/auth, typed reads, metadata, reviewed temperature/curve/mode/program writes, verification, errors | No Home Assistant imports or runtime dependency |
 | Thin testing CLI (`hvctl`) | Invoke library methods, print results/errors, explicitly confirm permitted parameter writes | Library; single console entry point, no second protocol implementation |
-| Home Assistant integration (`hargassner`, provisional domain) | Config entries, polling, entity mappings, availability, lifecycle, integration diagnostics | Home Assistant and a released library version |
+| Home Assistant integration (`hargassner_hv`) | Config entries, polling, sensors, opt-in number/select controls, program action, lifecycle, diagnostics | Home Assistant and an independently installed/released library version |
 
 The library must be independently installable and testable. Protocol fixes belong
 there, not in entity code or the CLI. The integration must be a thin adapter,
@@ -179,7 +181,10 @@ Avoid duplicating the full endpoint matrix from the protocol reference here.
       explicit target, serial execution, privacy protection, and request guards.
 - [ ] Library write implementation validated against the deployed unit; the
       earlier live round trip exercised the research setter, not this implementation.
-- [ ] Home Assistant config flow, coordinators, entities, and lifecycle tested.
+- [x] Home Assistant config flow, coordinators, entity mappings, guarded controls,
+      program actions, diagnostics, recovery, and lifecycle tested using actual
+      pinned HA core objects and synthetic SDK/loopback HTTP devices.
+- [ ] Integration deployed and observed on a live HA/controller installation.
 - [ ] Selected live parameter writes validated with physical observation and
       read-back; the narrow round trip establishes stored-value read-back only,
       not physical effects, reboot persistence, or other controls.
@@ -381,15 +386,16 @@ normal entity lifecycle. There is no second polling scheduler in the library.
 | Home Assistant platform | Source | Initial policy |
 |---|---|---|
 | `sensor` | Validated channels and read-only parameter values | Enable a small useful set; unknown/diagnostic channels disabled by default or omitted |
-| `binary_sensor` | Values whose boolean semantics are verified | Do not guess that every numeric 0/1 channel is a boolean |
+| `binary_sensor` | Future values whose boolean semantics are verified | Not implemented; raw 0/1 channels are not guessed to be booleans |
 | `number` | Validated writable numeric customer parameters | Opt-in; use units, min/max, and step from validated metadata |
 | `select` | Validated writable choice parameters | Opt-in; preserve API choice IDs separately from translated labels |
-| `switch` | Validated ordinary boolean settings | Opt-in; no raw relays, pumps, or automatic exposure of ignition controls |
+| `switch` | Future validated ordinary boolean settings | Not implemented; the SDK currently permits no boolean writes |
 
-Not every USER parameter warrants an entity. Daily/weekly schedules, dates,
-display preferences, and high-impact operational settings can remain read-only
-or unsupported until a suitable mapping and serializer are validated. Do not
-expose an arbitrary parameter-write service as a shortcut around the allowlist.
+Not every USER parameter warrants an entity. The six reviewed daily/weekly
+circuit programs have read-only sensor attributes and a dedicated admin-only,
+device-targeted full-replacement action with preview/expected-value checks.
+Other schedules, dates, preferences, and unreviewed high-impact settings remain
+unsupported as controls. There is no arbitrary parameter-write service.
 
 Use channel/parameter wire names plus the device identifier for stable entity
 unique IDs, not localized display names. Specify units, device classes, and state
@@ -449,7 +455,8 @@ retained as historical evidence, not copied into the library/integration.
 ## 7. Suggested layout and release boundary
 
 `src/hvclient/`, packaging, library tests, and the CLI entry point now exist.
-The Home Assistant portion of the layout below remains provisional.
+The custom integration is implemented under `custom_components/hargassner_hv/`;
+the broader layout below remains a roadmap, not a directory specification.
 The independent library and integration can begin in one repository, but must
 retain separate import and release boundaries. They can be split later.
 
@@ -463,7 +470,7 @@ src/hvclient/
   policy.py
   exceptions.py
   cli.py                         # optional entry point/extra only
-custom_components/hargassner/
+custom_components/hargassner_hv/
   manifest.json                  # released hvclient requirement
   __init__.py
   config_flow.py

@@ -7,6 +7,10 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 The independent async Python library supports **USER parameters**, six reviewed
 **heating-curve slope** and three **circuit-mode exceptions**, and read-only
 **channels, device info, and PCB diagnostics**.
+The separate **Home Assistant custom integration** provides read-only sensors,
+opt-in number/select controls, and a dedicated circuit-program action through
+the same library. Its HACS-compatible development layout targets HA 2026.11.1;
+public installation still requires an SDK release and finalized release metadata.
 The protocol notes also distinguish
 observations from a 3.4.0 unit.
 
@@ -16,6 +20,8 @@ observations from a 3.4.0 unit.
 |---|---|
 | `src/hvclient/` | Independently installable async telemetry/info/PCB and USER-parameter library, with thin testing CLI; no Home Assistant dependency. |
 | `docs/library.md` | Library installation, Python API, write policy, lifecycle, errors, and CLI usage. |
+| `custom_components/hargassner_hv/` | Separate Home Assistant adapter: config flow, polling, sensors, opt-in controls, and program action. |
+| `docs/home-assistant.md` | Integration capabilities, development installation, entities/actions, testing, and release limitations. |
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
@@ -128,6 +134,18 @@ Concurrent UI/client changes or one-time mode transitions can fail the final
 comparison legitimately: inspect the controller, **do not automatically retry,
 restore, or re-arm anything**. A pass validates reads/previews only, not actual
 writes, physical heating effects, or reboot persistence.
+
+## Home Assistant integration
+
+See [the integration guide](docs/home-assistant.md) for setup, explicit write
+opt-in, program-action examples, and the separate HA test environment.
+The integration imports the independently installed SDK; no library source is
+copied into it. Configuration/polling do not write. The supported calls were
+curated to avoid initiating the boiler's SERVICE mode.
+
+The repository is HACS-layout ready, **not publicly release-ready**: the pinned
+SDK is not published yet, manifest URLs are reserved placeholders, and public
+release ownership/branding remain to be supplied. No public identity is assumed.
 
 ## Research tools
 

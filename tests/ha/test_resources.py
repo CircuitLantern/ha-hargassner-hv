@@ -31,6 +31,21 @@ def test_english_resources_match_source_strings():
     assert json.loads((root / "strings.json").read_text()) == json.loads((root / "translations/en.json").read_text())
 
 
+def test_ha_facing_text_describes_service_safety_not_authentication_flags():
+    root = Path(__file__).resolve().parents[2]
+    integration = root / "custom_components" / DOMAIN
+    for path in (integration / "README.md", integration / "strings.json",
+                 integration / "translations/en.json", root / "docs/home-assistant.md"):
+        text = path.read_text().casefold()
+        assert "daqonly" not in text
+        assert "daq_only" not in text
+        assert "service mode" in text
+    overview = (root / "README.md").read_text().split("## Home Assistant integration", 1)[1].split("## Research tools", 1)[0].casefold()
+    assert "daqonly" not in overview
+    assert "daq_only" not in overview
+    assert "service mode" in overview
+
+
 async def test_real_ha_loads_custom_english_translations(hass):
     config = await translation.async_get_translations(hass, "en", "config", {DOMAIN})
     assert config[f"component.{DOMAIN}.config.step.user.data.host"] == "Host"
