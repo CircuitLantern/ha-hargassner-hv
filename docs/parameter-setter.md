@@ -3,7 +3,10 @@
 [`tools/set_parameter.py`](../tools/set_parameter.py) is a one-shot investigation
 tool, similar to the read-oriented probe. It uses Python's standard library and
 reuses the probe's SHA-512 authentication and HTTP transport. It is **not** the
-planned reusable async library or its optional CLI.
+independent async library or its thin CLI.
+For the implemented independent library and its thin `hv-parameters` testing
+CLI, see [the library reference](library.md). This older tool remains separate
+investigation tooling and is not imported by the library.
 
 ## Usage
 
@@ -138,7 +141,7 @@ Run only on a trusted LAN; this API uses plain HTTP and a firmware-embedded salt
 ## Offline validation
 
 ```bash
-python3 -B -m unittest discover -s tests -v
+python3 -B -m unittest discover -s tests -p test_set_parameter.py -v
 ```
 
 The tests replace HTTP connections with a stateful in-memory device and inspect

@@ -22,6 +22,10 @@ phased investigation, validation, and client-design plan, and
 blocks known method-agnostic mutator paths but is not a general API sandbox.
 For English meanings, hydraulic context, and a crosswalk to the German service
 and electrical manuals, see [`parameter-guide.md`](parameter-guide.md).
+The [independent async library](library.md) currently implements USER parameter
+reads and opt-in reviewed numeric writes only, with no SERVICE authentication
+option. Its thin CLI uses the same library; other documented routes are outside
+that package's scope.
 
 ### Live validation status
 

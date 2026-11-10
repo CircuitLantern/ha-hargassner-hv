@@ -1,6 +1,9 @@
 # Development plan — reusable Hargassner client and Home Assistant integration
 
-Status: scoped plan, not an implemented client or integration.
+Status: the independent **parameters-only, USER-only** async library and thin
+testing CLI are implemented; Home Assistant integration and the wider roadmap
+below remain planned. See the [implemented API](library.md). No installer-level
+support or non-parameter routes are part of the current delivery.
 
 - Protocol reference: [`boiler-http-api.md`](boiler-http-api.md).
 - Code-analysis baseline: `smart_hv_2.7.4`, ARM 32-bit Qt 5 application.
@@ -13,11 +16,14 @@ Status: scoped plan, not an implemented client or integration.
 Build a small reusable Python library for the boiler HTTP API, then a separate
 Home Assistant integration that uses that library. An optional thin CLI helps
 exercise the library outside Home Assistant; it is not a standalone application.
+The current implementation is deliberately restricted to USER parameter reads
+and opt-in reviewed numeric writes. The client exposes no higher-level catalog
+option, channels, device-info route, or hardware diagnostics.
 
 | Deliverable | Responsibility | Dependencies |
 |---|---|---|
-| Python library (`hvclient`, provisional name) | Async HTTP, session authentication, typed API values, validation, guarded parameter writes, errors | No Home Assistant imports or runtime dependency |
-| Optional thin CLI | Invoke library methods, print results/errors, explicitly confirm permitted writes | Library; installed as an optional extra or separate entry point |
+| Python library (`hvclient`, distribution `hargassner-hvclient`) | Async HTTP, session authentication, typed USER parameters, validation, guarded numeric writes, errors | No Home Assistant imports or runtime dependency |
+| Thin testing CLI (`hv-parameters`) | Invoke library parameter methods, print results/errors, explicitly confirm permitted writes | Library; separate console entry point, no second protocol implementation |
 | Home Assistant integration (`hargassner`, provisional domain) | Config entries, polling, entity mappings, availability, lifecycle, integration diagnostics | Home Assistant and a released library version |
 
 The library must be independently installable and testable. Protocol fixes belong
@@ -139,7 +145,10 @@ Avoid duplicating the full endpoint matrix from the protocol reference here.
       `daqOnly=true`; see the [live record](parameter-setter.md#live-validation--2026-11-09).
 - [ ] Idle expiration, cookie refresh, cooldown, and bounded recovery validated
       against the deployed unit.
-- [ ] Library packaging and async contract tests implemented.
+- [x] Independently installable USER-parameter library, thin library-backed CLI,
+      and async contract/lifecycle tests implemented with loopback mock servers.
+- [ ] The new async library validated against the deployed unit; the earlier
+      live round trip exercised the research setter, not this implementation.
 - [ ] Home Assistant config flow, coordinators, entities, and lifecycle tested.
 - [ ] Selected live parameter writes validated with physical observation and
       read-back; the narrow round trip establishes stored-value read-back only,
@@ -153,17 +162,21 @@ Use an async-first Python API with `aiohttp` as the transport so it fits Home
 Assistant without blocking its event loop. A synchronous wrapper is not needed;
 the optional CLI can call `asyncio.run()`.
 
-Proposed public methods, not an implemented API:
+Implemented parameters-only public methods:
 
 ```text
 AsyncHargassnerClient(host, port=80, session=None, write_policy=deny_all)
-  async_get_info()
-  async_get_channels()
-  async_get_parameters(names=None)
-  async_get_pcb()                         # optional diagnostic read
-  async_set_parameter(name, value)        # opt-in and verified
+  async_get_parameters(names=None)                     # USER only
+  async_get_parameter(name)
+  async_preview_parameter_write(name, value, expected=...)  # no POST
+  async_set_parameter(name, value, expected=...)        # opt-in and verified
   async_close()
 ```
+
+The documented broader information/channel/diagnostic ideas are not exposed by
+this release. USER schedules, choices, booleans, text, and raw controller date/
+time components are readable; writes initially require an explicit subset of
+11 reviewed numeric names. Higher levels and structured writes are out of scope.
 
 - Library initialization must not perform network I/O or authenticate with a
   false/missing `daqOnly` flag.
@@ -190,11 +203,11 @@ AsyncHargassnerClient(host, port=80, session=None, write_policy=deny_all)
   response sizes and preserve status, reason, and JSON decoding errors.
 - Support the selected-parameter **GET body** through `aiohttp`; do not rewrite
   it into query parameters or assume proxies preserve it.
-- Serialize authentication with an async lock, including challenge cooldown
-  waits. Use monotonic time and `asyncio.sleep`, never blocking sleeps.
-- Keep the authentication and request locks separate and define their ordering.
-  The internal transport helper must not re-acquire a lock already held by an
-  authentication or write/read-back transaction.
+- Serialize authentication, including challenge cooldown waits. Use monotonic
+  time and `asyncio.sleep`, never blocking sleeps. The implemented client uses
+  one operation lock for authentication, reads, and full write/read-back
+  transactions; internal helpers never re-acquire it. This avoids nested-lock
+  deadlocks and gives concurrent callers one shared authentication session.
 - Start with serialized device requests. Coordinate writes and their read-back
   against polling on the same client; do not hold a separate Home Assistant lock
   that deadlocks the library.
@@ -359,31 +372,34 @@ Provide only enough CLI to validate library behavior and troubleshoot outside
 Home Assistant. Use the same async client and exceptions; no alternative HTTP
 stack, TUI, embedded web service, daemon, or disk cookie store.
 
-Provisional one-shot commands:
+Implemented one-shot testing commands:
 
 ```text
-hvctl --host <boiler-ip> info
-hvctl --host <boiler-ip> channels --json
-hvctl --host <boiler-ip> parameters list --security-level USER
-hvctl --host <boiler-ip> parameters get --name <api-name>
-hvctl --host <boiler-ip> parameters set --name <allowed-name> --value <value> --confirm
+hv-parameters <boiler-ip> list
+hv-parameters <boiler-ip> get <api-name>
+hv-parameters <boiler-ip> set <allowed-name> <value>  # preview
+hv-parameters <boiler-ip> set <allowed-name> <value> --apply --expect <current>
 ```
 
-The setter command exists only after the guarded-write phase, must supply an
-explicit permitted name, and remains in `daqOnly=true`. Print the verified
-result or a clear unknown/mismatched outcome; never expose a raw path/body write
-command. stdout/stderr are sufficient; redirected development output is an
-external caller choice, not a library storage feature.
+The testing setter exercises the library's guarded numeric implementation; it
+does not complete hardware/physical-effect validation or enable Home Assistant
+controls. It requires an explicitly permitted name and remains in `daqOnly=true`.
+It prints the verified result or a clear unknown/mismatched outcome and never
+exposes a raw path/body write command. stdout/stderr are sufficient; redirected
+development output is an external caller choice, not a library storage feature.
 
 `tools/probe.py` remains investigation tooling. It is not the production library
 and should not be imported by the integration.
 The separate [guarded numeric setter](parameter-setter.md) is also investigation
-tooling: it reuses the probe, not the proposed async library. Its offline contract
+tooling: it reuses the probe, not the independent async library. Its offline contract
 tests do not complete the guarded-write phase or validate live physical effects.
+The new `hv-parameters` CLI instead calls `hvclient` exclusively. Research tooling
+is retained as historical evidence, not copied into the library/integration.
 
 ## 7. Suggested layout and release boundary
 
-This is a provisional layout; no directories or packages are created by the plan.
+`src/hvclient/`, packaging, library tests, and the CLI entry point now exist.
+The Home Assistant portion of the layout below remains provisional.
 The independent library and integration can begin in one repository, but must
 retain separate import and release boundaries. They can be split later.
 

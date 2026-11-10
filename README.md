@@ -1,12 +1,16 @@
-# Hargassner Smart HV 2.7.4 — HTTP API analysis
+# Hargassner Smart HV — HTTP API analysis and USER-parameter client
 
 Reverse-engineering notes and tooling for the HTTP service exposed on TCP/80 by
 the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
+The independent async Python library currently supports **USER parameters only**;
+the protocol notes also distinguish observations from a 3.4.0 unit.
 
 ## Contents
 
 | Path | Purpose |
 |---|---|
+| `src/hvclient/` | Independently installable async USER-parameter library and thin testing CLI; no Home Assistant dependency. |
+| `docs/library.md` | Library installation, Python API, write policy, lifecycle, errors, and CLI usage. |
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
@@ -15,7 +19,45 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 | `tools/re/` | Helpers for querying the Kuna decompilation export. |
 | `firmware/` | Provenance and checksums for the vendor artifacts. Binaries are not tracked. |
 
-## Quick start
+## Library quick start
+
+Python 3.11+ is required. Install the library and optional test runner:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[test]'
+
+.venv/bin/hv-parameters <boiler-ip> list
+.venv/bin/hv-parameters <boiler-ip> get 4 5
+.venv/bin/hv-parameters <boiler-ip> set 4 21  # preview only
+```
+
+```python
+from hvclient import AsyncHargassnerClient
+
+async def read_daytime_target(host):
+    async with AsyncHargassnerClient(host) as client:
+        parameter = await client.async_get_parameter("4")
+        return parameter.value
+```
+
+The library always sends `daqOnly=true` and exposes no mode/level override or
+non-parameter route. Reads return USER entries only, including inactive entries.
+Writes are denied by default; enabling a subset of 11 reviewed numeric names
+requires an explicit `WritePolicy`. The CLI calls the same library, and applying
+a write requires both `--apply` and `--expect`. See the
+[library reference](docs/library.md) for examples and safety limitations.
+
+Full offline suite (synthetic data and loopback HTTP servers, no boiler access):
+
+```bash
+.venv/bin/python -B -m unittest discover -s tests -v
+```
+
+## Research tools
+
+These predate the library and remain investigation tools, not dependencies of
+the library or the intended Home Assistant integration.
 
 ```bash
 # Challenge/cooldown check (no authentication)
@@ -58,7 +100,8 @@ and sends at most one update before a separate read-back. See
 [`docs/parameter-setter.md`](docs/parameter-setter.md) for supported names,
 exit codes, and the limits of verification. Example values are not recommendations.
 
-Offline tool tests: `python3 -B -m unittest discover -s tests -v`.
+Standalone setter tests (standard library only):
+`python3 -B -m unittest discover -s tests -p test_set_parameter.py -v`.
 
 ## Firmware artifacts
 
@@ -105,7 +148,7 @@ propagated by Git itself.
 
 ## Safety
 
-This is analysis tooling for heating equipment, not a supported control
+This is unofficial software for heating equipment, not a vendor-supported control
 interface.
 
 - Run the boiler on an isolated management network; never expose TCP/80 to an
@@ -118,5 +161,6 @@ interface.
 
 ## References
 
+- [`docs/library.md`](docs/library.md)
 - [`docs/boiler-http-api.md`](docs/boiler-http-api.md)
 - [`docs/client-development-plan.md`](docs/client-development-plan.md)
