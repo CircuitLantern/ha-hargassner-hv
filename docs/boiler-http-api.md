@@ -22,10 +22,25 @@ phased investigation, validation, and client-design plan, and
 blocks known method-agnostic mutator paths but is not a general API sandbox.
 For English meanings, hydraulic context, and a crosswalk to the German service
 and electrical manuals, see [`parameter-guide.md`](parameter-guide.md).
-The [independent async library](library.md) implements USER parameter reads,
-opt-in reviewed numeric writes, and read-only `/channels`, `/info`, and `/pcb`,
+The [independent async library](library.md) implements USER parameter reads
+plus six PLUMBER heating-curve and three DEVELOPER circuit-mode exceptions,
+opt-in reviewed writes, and read-only `/channels`, `/info`, and `/pcb`,
 with no SERVICE authentication option. Its thin CLI uses the same library;
 identity mutations and other device routes remain outside that package's scope.
+Curve writes check the configured profile and both variants' activation flags,
+require an expected current value, and still authenticate only with `daqOnly=true`.
+This is not general installer access or live validation of curve changes.
+Circuit modes `A1z`/`A11z`/`A61z` use choice IDs 0–5 and a sparse
+`"value":{"id":...}` object, not a scalar or translated label. Their deliberately
+hidden `active:false` metadata is accepted only for those exact mode names with
+validated choices and configured circuit context; no general inactive/DEVELOPER
+bypass exists. Mode writes require an expected ID, verify the choice and circuit
+type, and never replay a POST. No live circuit-mode change is recorded.
+USER heating programs `3`/`3a`, `6`/`6a`, and `HP3`/`HP3a` also have guarded
+daily/weekly array writers. They require a full expected program and matching
+active profile, circuit configuration, and global D9 setting. D9 is read-only
+context; no automatic daily/weekly switch or mode change is performed. Weekday
+IDs follow Qt/ISO 1=Monday through 7=Sunday. See the [program contract](library.md#automatic-comfort-programs-daily-and-weekly-schedules).
 
 ### Live validation status
 

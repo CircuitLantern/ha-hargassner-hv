@@ -158,18 +158,29 @@ false means daily and true means weekly. Which objects are active matters;
 do not write both versions merely because their display labels are identical.
 
 - Daily ranges are arrays of `{"start":"HH:MM:SS","end":"HH:MM:SS"}`.
-- Weekly values group `weekdays` with `time_ranges`. Day values 1–7 occur in the
-  sample; **VERIFY** the numeric weekday mapping and overnight semantics before
-  implementing a writer rather than inferring them from an array example.
+- Weekly values group `weekdays` with `time_ranges`. Subsequent 2.7.4 code/
+  assembly inspection confirms Qt/ISO IDs **1=Monday through 7=Sunday**:
+  `WeeklyClockPart::checkWeekdays` compares them to `QDate::dayOfWeek`.
 - `00:00:00` → `24:00:00`, zero-length ranges, and empty weekday arrays occur.
-  Preserve them when reading; **VERIFY** whether zero-length ranges mean unused
-  slots, and do not coerce `24:00:00` to an ordinary Python same-day time.
+  Preserve them when reading and do not coerce `24:00:00` to an ordinary Python
+  same-day time. In the reviewed write path daily programs need their existing
+  slot count (normally two), while weekly parsing rejects zero-length time
+  ranges. The library pads daily unused slots but strips weekly unused slots,
+  uses minute-resolution intervals, and refuses overnight/overlapping ranges.
 - **E12** (API `D5`) determines the **day-versus-night setback classification**
   used by Hk-12/Hk-13. It is not the same as a circuit's comfort-heating schedule.
 - E5/E5a/E6 (`Setup5`/`Setup6`/`Setup7`) are time source, clock, and time zone.
   The sample's `Setup6` date contains invalid/unset components; do not substitute
   the current date or write it back. Exact datetime encoding/time-zone behavior
   needs serializer validation; the manuals explain meaning, not JSON formats.
+
+The library now supports full replacements for the six USER circuit programs
+(`3`/`3a`, `6`/`6a`, `HP3`/`HP3a`), with explicit policy and expected values,
+one/two weekly day groups, two windows per group, and complete explicit weekday
+coverage. It checks active chosen/inactive peer programs, circuit presence,
+and D9 before and after the write; it never changes D9 or operating mode. Other
+DHW/FWS schedules remain read-only. See [the standalone program contract](library.md#automatic-comfort-programs-daily-and-weekly-schedules).
+Code/capture agreement is not a recorded successful live schedule-write test.
 
 ## 4. All customer-level parameters, in English
 
@@ -295,8 +306,22 @@ Profile selection needs care. In circuit 1 the sample labels `A2` as the radiato
 slope and `A2a` as underfloor; **circuit 2's help labels are reversed** (`A12` says
 underfloor, `A12a` says radiators). Its active slope is `A12a`, while its active
 minimum/maximum objects are the `a` variants. This is inconsistent enough that
-a suffix-based universal rule is unsafe. **VERIFY** the effective profile from
-controller behavior/code, not just translated help text.
+a suffix-only rule based on translated help is unsafe. Subsequent inspection
+of **2.7.4 code/assembly** resolves that version's selection: in
+`HvHeizkreis::internalInitializeParameters` (`0x3aa2c`), circuit type ID 2 selects
+`A2a`/`A12a`/`A62a`; the other branch selects the unsuffixed names. The selected
+float is used by `HeizkreisBase::CalcHeizkreisSoll` (`0x146388`) as the
+dimensionless slope in the normal flow-target calculation. Thus the reversed
+circuit-2 help text is not the authoritative selector. The 3.4.0 sample's choice
+IDs and active flags agree with that mapping, but deployed control effects
+remain **VERIFY**; no live curve write is recorded.
+
+The library now permits exactly these six slope exceptions, not general PLUMBER
+access. It checks the live selector ID, active chosen variant/inactive peer,
+FLOAT type, empty unit, current bounds/increment, and required expected value.
+It never changes circuit type or min/max flow limits, and it keeps
+`daqOnly=true`. See [the library's curve policy](library.md#heating-curve-slopes-narrow-installer-exceptions).
+Being writable through that policy is not proof that a slope suits an installation.
 
 Other newer room-unit fields are **API-only** relative to the supplied manual:
 
@@ -310,7 +335,15 @@ Other newer room-unit fields are **API-only** relative to the supplied manual:
   with newer fields. They are not interchangeable aliases.
 - `Hk1-2a`, `Hk2-2a`, `HkA-2a`: room-target offsets in the API, distinct from
   base daytime targets; runtime/hardware linkage is code-derived, not explained
-  by the supplied SHB. `A1z`/`A11z`/`A61z` are internal circuit-mode objects.
+  by the supplied SHB. `A1z`/`A11z`/`A61z` are internal circuit-mode choices:
+  0 Off, 1 Automatic, 2 permanent reduced, 3 permanent comfort, 4 one-time
+  comfort, and 5 one-time reduced/short absence. They are DEVELOPER entries
+  deliberately hidden with `AlwaysInactiveCondition`, not the PLUMBER circuit
+  type selectors `A1`/`A11`/`A61`. The captured choices and 2.7.4 code agree;
+  mode changes have not been live-tested. The library now permits exactly
+  these three mode exceptions with explicit policy/expected IDs and configured
+  circuit checks; see [circuit-mode support](library.md#circuit-operating-modes-narrow-hidden-choice-exceptions).
+  These IDs are unrelated to the whole-boiler SERVICE mode.
 
 ### 5.2 Cylinder charging, priority, and hygiene — SHB pp. 4–5
 
@@ -606,8 +639,10 @@ unresolved instead of inventing semantics from the parameter prefix.
    residual-heat hysteresis. Missing does not mean zero, disabled, or writable
    via a guessed name.
 4. **Profiles and suffixes are not universal.** The duplicated A2/A12/A62 rows
-   reflect alternatives. The circuit-2 metadata inconsistency needs validation;
-   neither manual nor the presence of an `a` suffix proves which setter is used.
+   reflect alternatives. The 2.7.4 initialization/assembly selects the `a` slope
+   for circuit type ID 2, despite reversed circuit-2 help text. Do not select by
+   help text alone; the live selector and both active flags must agree, and
+   control effects on other firmware still need validation.
 5. **Customer/installer/service is not HTTP authorization.** The SHB lists
    intended configuration levels, not a network security policy. Use the actual
    runtime metadata and code path for API behavior.
