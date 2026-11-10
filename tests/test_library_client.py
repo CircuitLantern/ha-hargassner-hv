@@ -12,12 +12,15 @@ from yarl import URL
 from hvclient import (
     AsyncHargassnerClient,
     AuthenticationError,
+    ChannelSnapshot,
     ClientClosedError,
     CooldownError,
     HTTPError,
     ParameterAccessError,
     ParameterNotFoundError,
+    PcbInfo,
     ProtocolError,
+    SystemInfo,
     TransportError,
     ValidationError,
     WriteMismatchError,
@@ -67,8 +70,14 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         for request in self.device.auths():
             self.assertEqual(request["body"], {"key": KEY, "daqOnly": True})
             self.assertIs(request["body"]["daqOnly"], True)
-        self.assertTrue(all(request["path"] in {"/challenge", "/authenticate", "/parameters"}
+        self.assertTrue(all(request["path"] in {
+            "/challenge", "/authenticate", "/parameters", "/channels", "/info", "/pcb"
+        }
                             for request in self.device.requests))
+        for request in self.device.requests:
+            if request["path"] in {"/channels", "/info", "/pcb"}:
+                self.assertEqual(request["method"], "GET")
+                self.assertIsNone(request["body"])
 
     async def test_full_catalog_returns_all_44_user_entries_only(self):
         client = self.client()
@@ -397,7 +406,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(value=value), self.assertRaises(WritePolicyError):
                 await client._request("POST", "/authenticate", body)
         for method, path, body in (
-            ("GET", "/channels", None), ("GET", "/info", None),
+            ("POST", "/channels", None), ("POST", "/info", {}), ("PUT", "/pcb", {}),
             ("GET", "/factory-reset", None), ("POST", "/parameters?x", {}),
             ("PUT", "/parameters", {"parameters": [{"name": "4", "value": 21}]}),
             ("POST", "/parameters", {"parameters": [{"name": "E18", "value": True}]}),
@@ -490,3 +499,186 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             AsyncHargassnerClient("127.0.0.1", daq_only=False)
         with self.assertRaises(TypeError):
             AsyncHargassnerClient("127.0.0.1", security_level="PLUMBER")
+
+    async def test_readonly_snapshots_share_the_authenticated_client(self):
+        client = self.client()
+        channels = await client.async_get_channels()
+        info = await client.async_get_info()
+        pcb = await client.async_get_pcb()
+        parameters = await client.async_get_parameters(["4"])
+        self.assertIsInstance(channels, ChannelSnapshot)
+        self.assertEqual(channels["example.temperature"], 42.5)
+        self.assertIs(type(channels["example.state"]), int)
+        self.assertIsInstance(info, SystemInfo)
+        self.assertEqual(info.software_version, "test_firmware_1.0")
+        self.assertEqual(info.system_id, "test-system-id")
+        self.assertIsInstance(pcb, PcbInfo)
+        self.assertEqual(pcb.internal_temperature, 26.5)
+        self.assertEqual(pcb.internal_voltage, 23.8)
+        self.assertEqual(parameters["4"].security_level, "USER")
+        self.assertEqual(len(self.device.auths()), 1)
+        self.assertFalse(self.device.posts())
+        self.assertEqual([r["path"] for r in self.device.requests[2:]],
+                         ["/channels", "/info", "/pcb", "/parameters"])
+        self.assert_safe_wire()
+
+    async def test_every_snapshot_refreshes_cookie_for_later_parameter_read(self):
+        for path, method in (("/channels", "async_get_channels"), ("/info", "async_get_info"),
+                             ("/pcb", "async_get_pcb")):
+            with self.subTest(path=path):
+                client = self.client()
+                await getattr(client, method)()
+                await client.async_get_parameter("4")
+                self.assertEqual(self.device.requests[-2]["cookie"], AUTH_COOKIE)
+                self.assertEqual(self.device.requests[-1]["cookie"], REFRESH_COOKIE)
+                self.assertEqual(self.device.requests[-2]["path"], path)
+        self.assert_safe_wire()
+
+    async def test_each_snapshot_recovers_from_401_with_true_authentication(self):
+        for path, method in (("/channels", "async_get_channels"), ("/info", "async_get_info"),
+                             ("/pcb", "async_get_pcb")):
+            with self.subTest(path=path):
+                self.device.snapshot_replies[path] = [Reply(status=401)]
+                auth_count = len(self.device.auths())
+                await getattr(self.client(), method)()
+                self.assertEqual(len(self.device.auths()) - auth_count, 2)
+        self.assert_safe_wire()
+
+    async def test_snapshot_401_recovery_is_bounded(self):
+        for path, method in (("/channels", "async_get_channels"), ("/info", "async_get_info"),
+                             ("/pcb", "async_get_pcb")):
+            with self.subTest(path=path):
+                self.device.snapshot_replies[path] = [Reply(status=401)] * 2
+                auth_count = len(self.device.auths())
+                with self.assertRaises(AuthenticationError):
+                    await getattr(self.client(), method)()
+                self.assertEqual(len(self.device.auths()) - auth_count, 2)
+        self.assert_safe_wire()
+
+    async def test_channels_404_never_uses_a_stronger_login_or_another_route(self):
+        self.device.snapshot_replies["/channels"] = [Reply(status=404)]
+        with self.assertRaises(HTTPError) as caught:
+            await self.client().async_get_channels()
+        self.assertEqual(caught.exception.status, 404)
+        self.assertEqual(caught.exception.path, "/channels")
+        self.assertEqual(len(self.device.auths()), 1)
+        self.assertEqual(len(self.device.requests), 3)
+        self.assert_safe_wire()
+
+    async def test_snapshot_mutating_methods_bodies_and_suffixes_are_blocked(self):
+        client = self.client(write=True)
+        for path in ("/channels", "/info", "/pcb"):
+            for method in ("POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+                with self.subTest(path=path, method=method), self.assertRaises(WritePolicyError):
+                    await client._request(method, path, {})
+            with self.subTest(path=path), self.assertRaises(WritePolicyError):
+                await client._request("GET", path, {})
+        for path in ("/info/systemid/generate", "/info/", "/pcb/calibrate", "/channels?x=1",
+                     "/info%2fsystemid%2fgenerate", "/factory-reset"):
+            with self.subTest(path=path), self.assertRaises(WritePolicyError):
+                await client._request("GET", path)
+        self.assertFalse(self.device.requests)
+
+    async def test_snapshot_redirects_never_reach_identity_mutator(self):
+        for path, method in (("/channels", "async_get_channels"), ("/info", "async_get_info"),
+                             ("/pcb", "async_get_pcb")):
+            with self.subTest(path=path):
+                self.device.snapshot_replies[path] = [
+                    Reply(status=307, headers={"Location": "/info/systemid/generate"})
+                ]
+                with self.assertRaises(HTTPError) as caught:
+                    await getattr(self.client(), method)()
+                self.assertEqual(caught.exception.status, 307)
+        self.assert_safe_wire()
+
+    async def test_invalid_snapshot_shapes_types_and_nonfinite_values_fail(self):
+        cases = (
+            ("/channels", "async_get_channels", []),
+            ("/channels", "async_get_channels", {"channel": True}),
+            ("/channels", "async_get_channels", {"channel": "21"}),
+            ("/channels", "async_get_channels", {"channel": float("inf")}),
+            ("/info", "async_get_info", None),
+            ("/info", "async_get_info", {"softwareVersion": 340}),
+            ("/pcb", "async_get_pcb", {}),
+            ("/pcb", "async_get_pcb", {"internalTemperature": False, "internalVoltage": 24}),
+        )
+        for path, method, document in cases:
+            with self.subTest(path=path, document=document):
+                self.device.snapshot_replies[path] = [Reply(document=document)]
+                with self.assertRaises(ProtocolError):
+                    await getattr(self.client(), method)()
+        self.assertFalse(self.device.posts())
+
+    async def test_snapshot_response_size_limit_and_body_redaction(self):
+        for path, method in (("/channels", "async_get_channels"), ("/info", "async_get_info"),
+                             ("/pcb", "async_get_pcb")):
+            with self.subTest(path=path):
+                self.device.snapshot_replies[path] = [Reply(raw=b"private-device-id" * 20)]
+                with self.assertRaisesRegex(ProtocolError, "max_response_bytes") as caught:
+                    await getattr(self.client(max_response_bytes=100), method)()
+                self.assertNotIn("private-device-id", str(caught.exception))
+                self.device.snapshot_replies[path] = [Reply(raw=b"private-device-id")]
+                with self.assertRaises(ProtocolError) as caught:
+                    await getattr(self.client(), method)()
+                self.assertNotIn("private-device-id", str(caught.exception))
+
+    async def test_closed_client_cannot_read_snapshots(self):
+        client = self.client()
+        await client.async_close()
+        for method in ("async_get_channels", "async_get_info", "async_get_pcb"):
+            with self.subTest(method=method), self.assertRaises(ClientClosedError):
+                await getattr(client, method)()
+        self.assertFalse(self.device.requests)
+
+    async def test_concurrent_mixed_reads_share_one_authentication(self):
+        client = self.client()
+        result = await asyncio.gather(
+            client.async_get_channels(), client.async_get_info(), client.async_get_pcb(),
+            client.async_get_parameter("4"), client.async_get_channels(),
+        )
+        self.assertEqual(result[0].to_dict(), result[4].to_dict())
+        self.assertEqual(len(self.device.auths()), 1)
+        self.assertFalse(self.device.posts())
+        self.assert_safe_wire()
+
+    async def test_snapshot_reads_wait_for_write_and_its_readback(self):
+        self.device.block_write = True
+        client = self.client(write=True)
+        write = asyncio.create_task(client.async_set_parameter("4", 21))
+        await asyncio.wait_for(self.device.write_started.wait(), 1)
+        read = asyncio.create_task(client.async_get_channels())
+        await asyncio.sleep(0.01)
+        self.assertFalse(read.done())
+        self.assertFalse(any(r["path"] == "/channels" for r in self.device.requests))
+        self.device.release_write.set()
+        written, channels = await asyncio.wait_for(asyncio.gather(write, read), 1)
+        self.assertTrue(written.verified)
+        self.assertEqual(channels.to_dict(), self.device.channels)
+        self.assertEqual([r["path"] for r in self.device.requests[-2:]],
+                         ["/parameters", "/channels"])
+        self.assertEqual(len(self.device.posts()), 1)
+        self.assert_safe_wire()
+
+    async def test_snapshot_transient_read_retry_keeps_get_method_and_true_auth(self):
+        for path, method in (("/channels", "async_get_channels"), ("/info", "async_get_info"),
+                             ("/pcb", "async_get_pcb")):
+            with self.subTest(path=path):
+                client = self.client()
+                original = client._request
+                attempts = []
+
+                async def transient(
+                    request_method, request_path, body=None, *,
+                    target=path, calls=attempts, send=original,
+                ):
+                    if request_path == target:
+                        calls.append((request_method, body))
+                        if len(calls) == 1:
+                            raise TransportError("synthetic transient read failure")
+                    return await send(request_method, request_path, body)
+
+                with patch.object(client, "_request", side_effect=transient):
+                    await getattr(client, method)()
+                self.assertEqual(attempts, [("GET", None), ("GET", None)])
+        self.assertFalse(self.device.posts())
+        self.assert_safe_wire()

@@ -38,6 +38,9 @@ class CLIAndConfigurationTests(unittest.TestCase):
                 ["127.0.0.1", "set", "4", "21", "--full"],
                 ["127.0.0.1", "--allow-service-mode", "list"],
                 ["127.0.0.1", "set", "4", "21", "--app"],
+                ["127.0.0.1", "info", "--apply"],
+                ["127.0.0.1", "channels", "--full"],
+                ["127.0.0.1", "pcb", "--allow-service-mode"],
             ):
                 with self.subTest(args=args), redirect_stderr(io.StringIO()):
                     with self.assertRaises(SystemExit) as caught:
@@ -97,7 +100,10 @@ class CLIAndConfigurationTests(unittest.TestCase):
             "import hvclient,hvclient.__main__,sys; "
             "assert 'homeassistant' not in sys.modules; "
             "assert 'tools.probe' not in sys.modules; "
-            "assert not hasattr(hvclient.AsyncHargassnerClient, 'async_get_channels'); "
+            "assert callable(hvclient.AsyncHargassnerClient.async_get_channels); "
+            "assert callable(hvclient.AsyncHargassnerClient.async_get_info); "
+            "assert callable(hvclient.AsyncHargassnerClient.async_get_pcb); "
+            "assert not hasattr(hvclient.AsyncHargassnerClient, 'async_set_channels'); "
             "print(hvclient.AsyncHargassnerClient.__name__)"
         )
         # Prefer the harness-approved scratch area when present; stay portable.
@@ -109,3 +115,27 @@ class CLIAndConfigurationTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-B", "-m", "hvclient", "--help"],
                                     cwd=cwd, check=True, capture_output=True, text=True)
             self.assertIn("daqOnly=true", result.stdout)
+
+    def test_snapshot_cli_commands_only_call_read_methods_with_readonly_policy(self):
+        for command, method, document in (
+            ("channels", "async_get_channels", {"example.channel": 0}),
+            ("info", "async_get_info", {"softwareVersion": "test"}),
+            ("pcb", "async_get_pcb", {"internalTemperature": 20, "internalVoltage": 24}),
+        ):
+            with self.subTest(command=command):
+                result = unittest.mock.Mock()
+                result.to_dict.return_value = document
+                instance = AsyncMock()
+                instance.__aenter__.return_value = instance
+                getattr(instance, method).return_value = result
+                with (
+                    patch("hvclient.cli.AsyncHargassnerClient", return_value=instance) as constructor,
+                    redirect_stdout(io.StringIO()) as out,
+                ):
+                    code = cli.main(["127.0.0.1", command])
+                self.assertEqual(code, 0)
+                self.assertEqual(json.loads(out.getvalue()), document)
+                getattr(instance, method).assert_awaited_once_with()
+                self.assertFalse(constructor.call_args.kwargs["write_policy"].allowed_names)
+                instance.async_set_parameter.assert_not_awaited()
+                instance.async_preview_parameter_write.assert_not_awaited()

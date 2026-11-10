@@ -4,6 +4,7 @@ from decimal import Decimal, localcontext
 
 from hvclient import (
     NUMERIC_USER_WRITES,
+    ChannelSnapshot,
     Choice,
     ControllerDateTime,
     ParameterAccessError,
@@ -14,7 +15,12 @@ from hvclient import (
     WritePolicy,
     WritePolicyError,
 )
-from hvclient.models import parameter_from_json
+from hvclient.models import (
+    channels_from_json,
+    parameter_from_json,
+    pcb_info_from_json,
+    system_info_from_json,
+)
 from hvclient.policy import validate_change
 from tests.library_support import numeric, user_catalog
 
@@ -156,3 +162,119 @@ class PolicyTests(unittest.TestCase):
             parameter = parameter_from_json(numeric(**changes))
             with self.subTest(changes=changes), self.assertRaises(ValidationError):
                 validate_change(parameter, 21, WritePolicy.only("4"))
+
+
+class SnapshotModelTests(unittest.TestCase):
+    def test_channels_are_dynamic_numeric_mapping_without_unit_or_boolean_inference(self):
+        document = {"future.channel": 0, "temperature": -12.5, "counter": 2**60 + 1}
+        snapshot = channels_from_json(document)
+        self.assertIsInstance(snapshot, ChannelSnapshot)
+        self.assertEqual(len(snapshot), 3)
+        self.assertEqual(set(snapshot), set(document))
+        self.assertEqual(snapshot["future.channel"], 0)
+        self.assertIs(type(snapshot["future.channel"]), int)
+        self.assertEqual(snapshot["counter"], 2**60 + 1)
+        self.assertEqual(dict(snapshot), document)
+        self.assertEqual(snapshot, document)
+        self.assertIsNone(snapshot.get("absent"))
+        self.assertFalse(hasattr(snapshot, "unit"))
+
+    def test_empty_channel_snapshot_is_valid(self):
+        snapshot = channels_from_json({})
+        self.assertEqual(len(snapshot), 0)
+        self.assertEqual(snapshot.to_dict(), {})
+
+    def test_channel_snapshot_is_immutable_and_detached(self):
+        document = {"channel": 21.5}
+        snapshot = channels_from_json(document)
+        document["channel"] = 0
+        detached = snapshot.to_dict()
+        detached["channel"] = 0
+        self.assertEqual(snapshot["channel"], 21.5)
+        with self.assertRaises(TypeError):
+            snapshot.channels["channel"] = 0
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            snapshot.channels = {}
+
+    def test_invalid_channel_shapes_names_and_values(self):
+        for document in (None, [], "invalid", {"": 0}, {1: 0}):
+            with self.subTest(document=document), self.assertRaises(ProtocolError):
+                channels_from_json(document)
+        for value in (True, False, None, "21", {}, [], float("nan"), float("inf")):
+            with self.subTest(value=value), self.assertRaises(ProtocolError):
+                channels_from_json({"channel": value})
+
+    def test_system_info_preserves_strings_and_unknown_fields_without_repr_identifiers(self):
+        document = {
+            "softwareVersion": "test_firmware_1.0", "mac": "private-test-mac",
+            "systemId": "private-test-id", "commissionNumber": "private-test-commission",
+            "articleSerialNumber": "private-test-serial", "extension": {"items": [1, False]},
+        }
+        info = system_info_from_json(document)
+        self.assertEqual(info.software_version, document["softwareVersion"])
+        self.assertEqual(info.mac, document["mac"])
+        self.assertEqual(info.system_id, document["systemId"])
+        self.assertEqual(info.commission_number, document["commissionNumber"])
+        self.assertEqual(info.article_serial_number, document["articleSerialNumber"])
+        self.assertEqual(info.to_dict(), document)
+        self.assertNotIn("private-test", repr(info))
+        self.assertNotIn("extension", repr(info))
+
+    def test_system_info_missing_or_null_fields_do_not_generate_identity(self):
+        for document in ({}, {"systemId": None}, {"softwareVersion": "future", "newKey": 3}):
+            with self.subTest(document=document):
+                info = system_info_from_json(document)
+                self.assertIsNone(info.system_id)
+                self.assertIsNone(info.mac)
+                self.assertEqual(info.to_dict(), document)
+
+    def test_system_info_is_immutable_and_copies_nested_metadata(self):
+        document = {"systemId": "test", "future": {"items": [1]}}
+        info = system_info_from_json(document)
+        document["future"]["items"][0] = 2
+        info.to_dict()["future"]["items"][0] = 3
+        self.assertEqual(info.to_dict()["future"], {"items": [1]})
+        with self.assertRaises(TypeError):
+            info.raw["future"]["items"][0] = 4
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            info.system_id = "other"
+
+    def test_system_info_rejects_bad_shapes_and_string_field_types_without_data_echo(self):
+        for document in (None, [], "private-device-data"):
+            with self.subTest(document=document), self.assertRaises(ProtocolError) as caught:
+                system_info_from_json(document)
+            self.assertNotIn("private-device-data", str(caught.exception))
+        for key in ("mac", "systemId", "commissionNumber", "articleSerialNumber", "softwareVersion"):
+            for value in (True, 123, [], {}):
+                with self.subTest(key=key, value=value), self.assertRaises(ProtocolError):
+                    system_info_from_json({key: value})
+
+    def test_pcb_numbers_and_unknown_fields_preserved_without_units_or_range_clamping(self):
+        document = {"internalTemperature": -1.5, "internalVoltage": 0, "future": [1, 2]}
+        pcb = pcb_info_from_json(document)
+        self.assertEqual(pcb.internal_temperature, -1.5)
+        self.assertEqual(pcb.internal_voltage, 0)
+        self.assertIs(type(pcb.internal_voltage), int)
+        self.assertEqual(pcb.to_dict(), document)
+        document["future"][0] = 9
+        pcb.to_dict()["future"][0] = 8
+        self.assertEqual(pcb.to_dict()["future"], [1, 2])
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            pcb.internal_voltage = 24
+
+    def test_pcb_rejects_missing_invalid_and_nonfinite_readings(self):
+        for document in (None, [], {}, {"internalTemperature": 20}, {"internalVoltage": 24}):
+            with self.subTest(document=document), self.assertRaises(ProtocolError):
+                pcb_info_from_json(document)
+        for key in ("internalTemperature", "internalVoltage"):
+            for value in (None, True, "24", float("nan"), float("inf")):
+                document = {"internalTemperature": 20, "internalVoltage": 24, key: value}
+                with self.subTest(key=key, value=value), self.assertRaises(ProtocolError):
+                    pcb_info_from_json(document)
+
+    def test_unknown_info_and_pcb_metadata_must_be_finite_json(self):
+        with self.assertRaises(ProtocolError):
+            system_info_from_json({"extension": float("inf")})
+        with self.assertRaises(ProtocolError):
+            pcb_info_from_json({"internalTemperature": 20, "internalVoltage": 24,
+                                "extension": float("nan")})

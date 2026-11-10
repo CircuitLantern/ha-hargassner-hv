@@ -49,6 +49,12 @@ async def _run(args: argparse.Namespace) -> int:
         elif args.command == "get":
             parameters = await client.async_get_parameters(args.names)
             _print({"parameters": [parameter.to_dict() for parameter in parameters.values()]})
+        elif args.command == "channels":
+            _print((await client.async_get_channels()).to_dict())
+        elif args.command == "info":
+            _print((await client.async_get_info()).to_dict())
+        elif args.command == "pcb":
+            _print((await client.async_get_pcb()).to_dict())
         else:
             expected = {} if args.expect is None else {"expected": args.expect}
             if not args.apply:
@@ -65,13 +71,18 @@ async def _run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Test the hvclient USER-parameter library; always daqOnly=true.",
+        description="Test hvclient telemetry, information and USER parameters; always daqOnly=true.",
         allow_abbrev=False,
     )
     parser.add_argument("host", help="bare boiler IP or hostname")
     parser.add_argument("--port", type=int, default=80)
     parser.add_argument("--timeout", type=float, default=10.0)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("channels", help="read the numeric channel snapshot", allow_abbrev=False)
+    commands.add_parser(
+        "info", help="read device/firmware info (includes private identifiers)", allow_abbrev=False
+    )
+    commands.add_parser("pcb", help="read board temperature/voltage", allow_abbrev=False)
     commands.add_parser(
         "list", help="read the USER catalog, including inactive settings", allow_abbrev=False
     )

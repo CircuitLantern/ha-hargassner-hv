@@ -1,4 +1,4 @@
-"""Async parameters-only transport. Authentication never requests SERVICE mode."""
+"""Guarded async HTTP client. Authentication never requests SERVICE mode."""
 
 from __future__ import annotations
 
@@ -33,7 +33,18 @@ from .errors import (
     WriteOutcomeUnknownError,
     WritePolicyError,
 )
-from .models import Parameter, WritePreview, WriteResult, parameter_from_json
+from .models import (
+    ChannelSnapshot,
+    Parameter,
+    PcbInfo,
+    SystemInfo,
+    WritePreview,
+    WriteResult,
+    channels_from_json,
+    parameter_from_json,
+    pcb_info_from_json,
+    system_info_from_json,
+)
 from .policy import WritePolicy, decimal_number, numeric_input, validate_change
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,6 +52,8 @@ _SALT = "fa21228be4b513b2c28d6841f520a73e87cdee5fe8fdfd87201330084a033f27"
 _HEX64 = re.compile(r"[0-9a-fA-F]{64}")
 _CHALLENGE = re.compile(r"[0-9a-f]{64}")
 _COOLDOWN = 5.25
+_SNAPSHOT_PATHS = frozenset({"/channels", "/info", "/pcb"})
+_READ_PATHS = _SNAPSHOT_PATHS | {"/parameters"}
 _UNSET = object()
 _sleep = asyncio.sleep
 
@@ -108,7 +121,9 @@ def _cookie(headers: Iterable[str]) -> str | None:
 
 
 class AsyncHargassnerClient:
-    """Independent, USER-only client; no I/O until an async parameter operation.
+    """Read-only telemetry/information and USER parameters, with opt-in writes.
+
+    No I/O occurs until an async read/write operation is invoked.
 
     One operation lock serializes authentication, reads, and each complete
     write/read-back transaction. Internal helpers never re-acquire that lock.
@@ -181,6 +196,8 @@ class AsyncHargassnerClient:
     def _guard_request(self, method: str, path: str, body: Any) -> None:
         if (method, path) == ("GET", "/challenge") and body is None:
             return
+        if method == "GET" and path in _SNAPSHOT_PATHS and body is None:
+            return
         if (method, path) == ("POST", "/authenticate"):
             if (
                 isinstance(body, dict) and set(body) == {"key", "daqOnly"}
@@ -210,7 +227,7 @@ class AsyncHargassnerClient:
                 numeric_input(name, entries[0]["value"])
                 if self._cookie is not None:
                     return
-        raise WritePolicyError("request is outside the parameters-only API")
+        raise WritePolicyError("request is outside the supported endpoint/method policy")
 
     async def _request(self, method: str, path: str, body: Any = None) -> _Response:
         """Exactly one transport attempt; no redirect, middleware, or POST retry."""
@@ -248,7 +265,7 @@ class AsyncHargassnerClient:
         except (aiohttp.ClientError, OSError) as exc:
             # No underlying exception text/body/header logging (may hold secrets).
             raise TransportError(f"{method} {path}: connection failed or timed out") from exc
-        if path == "/parameters" and result.status == 200 and result.cookie is not None:
+        if path in _READ_PATHS and result.status == 200 and result.cookie is not None:
             self._cookie = result.cookie
         return result
 
@@ -296,19 +313,26 @@ class AsyncHargassnerClient:
             raise AuthenticationError("authentication did not issue a valid auth-cookie")
         raise AuthenticationError("authentication retry budget exhausted")
 
-    async def _get_parameters(self, names: tuple[str, ...] | None) -> dict[str, Parameter]:
+    async def _authenticated_read(self, path: str, body: Any = None) -> _Response:
+        """Shared, bounded read recovery; never changes the authentication mode."""
+        self._guard_request("GET", path, body)
         if self._cookie is None:
             await self._authenticate()
-        body = None if names is None else {"parameters": list(names)}
-        response = await self._read_response("/parameters", body)
+        response = await self._read_response(path, body)
         if response.status == 401:
             await self._authenticate()
-            response = await self._read_response("/parameters", body)
+            response = await self._read_response(path, body)
         if response.status == 401:
             self._cookie = None
-            raise AuthenticationError("parameter read still unauthorized after one re-authentication")
+            raise AuthenticationError(f"GET {path}: still unauthorized after one re-authentication")
         if response.status != 200:
-            raise HTTPError("GET", "/parameters", response.status, response.reason)
+            # In particular, /channels 404 is not a reason for a stronger login.
+            raise HTTPError("GET", path, response.status, response.reason)
+        return response
+
+    async def _get_parameters(self, names: tuple[str, ...] | None) -> dict[str, Parameter]:
+        body = None if names is None else {"parameters": list(names)}
+        response = await self._authenticated_read("/parameters", body)
         return self._parameters(response, names)
 
     @staticmethod
@@ -358,6 +382,27 @@ class AsyncHargassnerClient:
     async def async_get_parameter(self, name: str) -> Parameter:
         name = _name(name)
         return (await self.async_get_parameters((name,)))[name]
+
+    async def async_get_channels(self) -> ChannelSnapshot:
+        """Fetch all currently registered channels; numeric snapshot, not a setter."""
+        async with self._operation_lock:
+            self._check_open()
+            response = await self._authenticated_read("/channels")
+            return channels_from_json(response.json())
+
+    async def async_get_info(self) -> SystemInfo:
+        """Read firmware/device identity; no identity-write/generation operation."""
+        async with self._operation_lock:
+            self._check_open()
+            response = await self._authenticated_read("/info")
+            return system_info_from_json(response.json())
+
+    async def async_get_pcb(self) -> PcbInfo:
+        """Read board temperature/voltage; no hardware control or calibration."""
+        async with self._operation_lock:
+            self._check_open()
+            response = await self._authenticated_read("/pcb")
+            return pcb_info_from_json(response.json())
 
     async def _preview(self, name: str, value: Any, expected: Any) -> WritePreview:
         parameter = (await self._get_parameters((name,)))[name]

@@ -1,9 +1,9 @@
-"""Immutable USER parameter values and metadata; no schedule/timezone guesses."""
+"""Immutable parameter, telemetry, and information values; no unit/timezone guesses."""
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
@@ -99,13 +99,108 @@ def _time_ranges(value: Any) -> tuple[TimeRange, ...]:
 
 def _number(value: Any) -> int | float:
     if type(value) not in (int, float):
-        raise ProtocolError("expected a numeric parameter value/metadata field")
+        raise ProtocolError("expected a JSON number, not a boolean or structured/text value")
     try:
         if math.isfinite(value):
             return value
     except OverflowError:
         pass
-    raise ProtocolError("numeric parameter value/metadata must be finite")
+    raise ProtocolError("numeric JSON values must be finite")
+
+
+def _snapshot_object(document: Any, label: str) -> Mapping[str, Any]:
+    if not isinstance(document, dict):
+        raise ProtocolError(f"{label} response is not a JSON object")
+    try:
+        return freeze_json(document)
+    except RecursionError as exc:
+        raise ProtocolError(f"{label} JSON nesting exceeds the supported depth") from exc
+
+
+@dataclass(frozen=True, eq=False)
+class ChannelSnapshot(Mapping[str, int | float]):
+    """Dynamic channel-name -> number mapping; no inferred units or enum meanings."""
+
+    channels: Mapping[str, int | float] = field(repr=False)
+
+    def __getitem__(self, name: str) -> int | float:
+        return self.channels[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.channels)
+
+    def __len__(self) -> int:
+        return len(self.channels)
+
+    def to_dict(self) -> dict[str, int | float]:
+        return dict(self.channels)
+
+
+def channels_from_json(document: Any) -> ChannelSnapshot:
+    if not isinstance(document, dict):
+        raise ProtocolError("channels response is not a JSON object")
+    channels = {}
+    for name, value in document.items():
+        if not isinstance(name, str) or not name:
+            raise ProtocolError("channel name must be nonempty text")
+        channels[name] = _number(value)
+    return ChannelSnapshot(MappingProxyType(channels))
+
+
+@dataclass(frozen=True)
+class SystemInfo:
+    """Identity strings may be absent/null on other firmware; never invent IDs.
+
+    Known identifiers and raw extensions are excluded from repr. to_dict()
+    deliberately returns them for callers that explicitly request identity data.
+    """
+
+    raw: Mapping[str, Any] = field(repr=False)
+    software_version: str | None = None
+    mac: str | None = field(default=None, repr=False)
+    system_id: str | None = field(default=None, repr=False)
+    commission_number: str | None = field(default=None, repr=False)
+    article_serial_number: str | None = field(default=None, repr=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Detached wire-shaped copy; contains private device identifiers."""
+        return thaw_json(self.raw)
+
+
+def system_info_from_json(document: Any) -> SystemInfo:
+    raw = _snapshot_object(document, "info")
+
+    def text(key: str) -> str | None:
+        value = raw.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ProtocolError(f"info field {key} must be text or null")
+        return value
+
+    return SystemInfo(
+        raw=raw, software_version=text("softwareVersion"), mac=text("mac"),
+        system_id=text("systemId"), commission_number=text("commissionNumber"),
+        article_serial_number=text("articleSerialNumber"),
+    )
+
+
+@dataclass(frozen=True)
+class PcbInfo:
+    internal_temperature: int | float
+    internal_voltage: int | float
+    raw: Mapping[str, Any] = field(repr=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        return thaw_json(self.raw)
+
+
+def pcb_info_from_json(document: Any) -> PcbInfo:
+    raw = _snapshot_object(document, "pcb")
+    if "internalTemperature" not in raw or "internalVoltage" not in raw:
+        raise ProtocolError("pcb response is missing internalTemperature/internalVoltage")
+    return PcbInfo(
+        internal_temperature=_number(raw["internalTemperature"]),
+        internal_voltage=_number(raw["internalVoltage"]), raw=raw,
+    )
 
 
 def decode_value(type_name: str, value: Any) -> ParameterValue:

@@ -1,4 +1,4 @@
-"""Synthetic USER catalog and stateful loopback server; no real device fixtures."""
+"""Synthetic parameter/telemetry fixtures and loopback server; no real device data."""
 
 import asyncio
 import copy
@@ -97,6 +97,14 @@ class Device:
         self.write_started = asyncio.Event()
         self.release_write = asyncio.Event()
         self.require_cookie = True
+        self.channels = {"example.temperature": 42.5, "example.state": 0}
+        self.info = {
+            "softwareVersion": "test_firmware_1.0", "mac": "02:00:00:00:00:01",
+            "systemId": "test-system-id", "commissionNumber": "test-commission",
+            "articleSerialNumber": "test-serial",
+        }
+        self.pcb = {"internalTemperature": 26.5, "internalVoltage": 23.8}
+        self.snapshot_replies = {path: [] for path in ("/channels", "/info", "/pcb")}
 
     def posts(self):
         return [r for r in self.requests if (r["method"], r["path"]) == ("POST", "/parameters")]
@@ -120,10 +128,20 @@ class Device:
             if self.issue_cookie and status in (200, 204):
                 response.set_cookie("auth-cookie", AUTH_COOKIE, path="/")
             return response
-        if request.path != "/parameters":
+        if request.path not in {"/parameters", "/channels", "/info", "/pcb"}:
             raise AssertionError(f"forbidden endpoint {request.path}")
         if self.require_cookie and request.cookies.get("auth-cookie") != self.expected_cookie:
             return web.Response(status=401)
+        if request.path in self.snapshot_replies:
+            assert request.method == "GET" and body is None, "snapshot routes are GET-only"
+            replies = self.snapshot_replies[request.path]
+            if replies:
+                return replies.pop(0).response()
+            document = {"/channels": self.channels, "/info": self.info, "/pcb": self.pcb}[request.path]
+            response = web.json_response(document)
+            self.expected_cookie = REFRESH_COOKIE
+            response.set_cookie("auth-cookie", REFRESH_COOKIE, path="/")
+            return response
         if request.method == "GET":
             if self.read_replies:
                 return self.read_replies.pop(0).response()

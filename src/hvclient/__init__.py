@@ -1,4 +1,4 @@
-"""Parameters-only async Hargassner client, with no Home Assistant dependency."""
+"""Async Hargassner telemetry, information and USER parameters; no HA dependency."""
 
 from .client import AsyncHargassnerClient
 from .errors import (
@@ -18,9 +18,12 @@ from .errors import (
     WriteVerificationError,
 )
 from .models import (
+    ChannelSnapshot,
     Choice,
     ControllerDateTime,
     Parameter,
+    PcbInfo,
+    SystemInfo,
     TimeRange,
     WeeklyTimeRanges,
     WritePreview,
@@ -32,6 +35,7 @@ __all__ = [
     "NUMERIC_USER_WRITES",
     "AsyncHargassnerClient",
     "AuthenticationError",
+    "ChannelSnapshot",
     "Choice",
     "ClientClosedError",
     "ControllerDateTime",
@@ -41,7 +45,9 @@ __all__ = [
     "Parameter",
     "ParameterAccessError",
     "ParameterNotFoundError",
+    "PcbInfo",
     "ProtocolError",
+    "SystemInfo",
     "TimeRange",
     "TransportError",
     "ValidationError",
