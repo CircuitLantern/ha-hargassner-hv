@@ -4,4 +4,5 @@ include LICENSE LICENSING.md docs/library.md setup.cfg
 include tests/__init__.py tests/library_support.py tests/live_support.py
 include tests/test_library_*.py
 exclude tests/test_set_parameter.py
+prune tests/ha
 prune custom_components

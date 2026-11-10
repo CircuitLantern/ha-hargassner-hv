@@ -28,3 +28,4 @@ hvclient = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["ha"]

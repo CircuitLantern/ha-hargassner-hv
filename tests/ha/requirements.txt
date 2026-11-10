@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MPL-2.0
+homeassistant==2026.11.1
+pytest==9.0.3
+pytest-asyncio==1.4.0
+pytest-socket==0.8.1
+pytest-timeout==2.4.0
