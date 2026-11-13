@@ -74,7 +74,11 @@ def client():
         "articleSerialNumber": "synthetic-serial", "private_extension": "synthetic-secret",
     })
     api.async_get_info.return_value = api.info
-    api.async_get_channels.return_value = channels_from_json({"synthetic.raw": 0, "synthetic.temperature": 42.5})
+    api.async_get_channels.return_value = channels_from_json({
+        "synthetic.raw": 0, "synthetic.temperature": 42.5,
+        "kesselfuehler": 65.0, "aussentemperatur": 4.5,
+        "puffer_oben": 60.0, "Hk1Fr35RaumTemp": 21.25,
+    })
     api.async_get_pcb.return_value = pcb_info_from_json({"internalTemperature": 26.5, "internalVoltage": 24.0})
 
     async def parameters(names=None):

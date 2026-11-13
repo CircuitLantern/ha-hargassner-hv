@@ -42,7 +42,9 @@ def entity(hass, entry, platform, name):
 
 
 def device(hass, entry):
-    return er.async_get(hass).async_get(entity(hass, entry, "sensor", "4")).device_id
+    registry = er.async_get(hass)
+    firmware = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.unique_id}_firmware")
+    return registry.async_get(firmware).device_id
 
 
 async def load(hass, make_entry, **kwargs):
@@ -156,16 +158,16 @@ async def test_identity_change_prevents_control(hass, client, make_entry):
 
 
 async def test_poll_failure_unavailable_then_recovery(hass, client, make_entry):
-    entry = await load(hass, make_entry)
+    entry = await load(hass, make_entry, writes=("4",))
     coordinator = entry.runtime_data.parameters
     original = client.async_get_parameters.side_effect
     client.async_get_parameters.side_effect = TransportError("synthetic-private-details")
     await coordinator.async_refresh()
     assert not coordinator.last_update_success
-    assert hass.states.get(entity(hass, entry, "sensor", "4")).state == "unavailable"
+    assert hass.states.get(entity(hass, entry, "number", "4")).state == "unavailable"
     client.async_get_parameters.side_effect = original
     await coordinator.async_refresh()
-    assert hass.states.get(entity(hass, entry, "sensor", "4")).state == "20.5"
+    assert hass.states.get(entity(hass, entry, "number", "4")).state == "20.5"
     client.async_set_parameter.assert_not_awaited()
 
 

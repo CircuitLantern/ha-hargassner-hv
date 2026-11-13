@@ -34,6 +34,7 @@ async def device_server(request):
 @pytest.mark.parametrize("lost_response", [False, True])
 async def test_real_sdk_wire_never_requests_service_or_replays(hass, make_entry, device_server, lost_response):
     device, port, weekly = device_server
+    device.channels.update(kesselfuehler=65.5, Hk1Fr35RaumTemp=-1.0)
     name = "3a" if weekly else "3"
     entry = make_entry(writes=("4", "A2a", "A1z", "3", "3a"))
     hass.config_entries.async_update_entry(entry, data={**entry.data, "host": "127.0.0.1", "port": port})
@@ -41,6 +42,13 @@ async def test_real_sdk_wire_never_requests_service_or_replays(hass, make_entry,
         assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     registry = er.async_get(hass)
+    boiler = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.unique_id}_channel_kesselfuehler")
+    assert hass.states.get(boiler).state == "65.5"
+    assert hass.states.get(boiler).attributes["unit_of_measurement"] == "°C"
+    assert registry.async_get(boiler).entity_category is None
+    room = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.unique_id}_channel_Hk1Fr35RaumTemp")
+    assert registry.async_get(room).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(room) is None
 
     def entity(platform, name):
         return registry.async_get_entity_id(platform, DOMAIN, f"{entry.unique_id}_parameter_{name}")
@@ -65,7 +73,8 @@ async def test_real_sdk_wire_never_requests_service_or_replays(hass, make_entry,
                 "entity_id": entity("select", "A1z"), "option": "automatic",
             }, blocking=True)
         expected = copy.deepcopy(device.catalog[name]["value"])
-        target = registry.async_get(entity("sensor", "4")).device_id
+        firmware = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.unique_id}_firmware")
+        target = registry.async_get(firmware).device_id
         windows = [{"start": "07:00", "end": "09:00"}]
         requested = ({"groups": [{"weekdays": list(range(1, 8)), "time_ranges": windows}]}
                      if weekly else {"time_ranges": windows})

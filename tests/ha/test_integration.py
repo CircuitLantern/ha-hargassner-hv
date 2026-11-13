@@ -4,6 +4,7 @@
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import EntityCategory
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.hargassner_hv.const import DOMAIN
@@ -18,7 +19,14 @@ async def test_default_setup_is_read_only(hass, client, make_entry):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.LOADED
-    assert hass.states.get(entity_id(hass, entry, "sensor", "4")).state == "20.5"
+    registry = er.async_get(hass)
+    boiler = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.unique_id}_channel_kesselfuehler")
+    assert hass.states.get(boiler).state == "65.0"
+    assert registry.async_get(boiler).entity_category is None
+    setting = registry.async_get(entity_id(hass, entry, "sensor", "4"))
+    assert setting.entity_category is EntityCategory.DIAGNOSTIC
+    assert setting.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(setting.entity_id) is None
     assert entity_id(hass, entry, "number", "4") is None
     assert entity_id(hass, entry, "select", "A1z") is None
     client.async_set_parameter.assert_not_awaited()
