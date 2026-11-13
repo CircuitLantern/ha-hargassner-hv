@@ -7,6 +7,12 @@ library. Configuration and normal polling only read. Number/select controls
 and the dedicated program action require explicit per-setting write opt-in.
 The supported calls were curated to avoid initiating the boiler's SERVICE mode.
 
+Reviewed operating temperatures, fan speed, oxygen, and calculated indications
+are normal Sensors and do not require the advanced diagnostic option. Setting
+readbacks are Diagnostics; opted-in writable controls are Configuration.
+Unclassified channels remain optional diagnostics. Upgrades retain entity IDs,
+custom names, and explicit user enable/disable choices.
+
 The repository's `docs/home-assistant.md` describes installation, entity
 mapping, program actions, limitations, and the development test environment.
 The pinned library must be published before normal dependency installation

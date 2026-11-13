@@ -13,11 +13,12 @@ No cloud, MQTT bridge, custom dashboard, or separate polling service is needed.
 |---|---|
 | Config flow | Host/port entry, read-only validation, stable device identity, duplicate prevention |
 | Reconfiguration | Changes host/port only after verifying the same controller identity |
-| Parameter sensors | Reviewed temperatures, slopes, circuit modes, and daily/weekly programs |
+| Operational sensors | Boiler/return/flue/outdoor/buffer, flow/DHW/room readings, fan speed, oxygen, and reviewed calculated indications/targets |
+| Setting readbacks | Parameter values and programs under Diagnostics, disabled by default for new entities |
 | Number controls | 11 temperature settings and 6 slopes, individually opted in |
 | Mode selects | Circuit 1/2/A: Off, Automatic, permanent reduced/comfort, one-time reduced/comfort |
 | Program action | Preview or replace one circuit's full daily/weekly comfort program |
-| Raw channels | Optional dynamically registered diagnostic sensors, disabled by default |
+| Additional diagnostic channels | Optional unclassified/internal readings, disabled by default |
 | PCB diagnostics | Optional raw temperature/voltage readings, disabled by default |
 | Diagnostics download | Whitelisted health/configuration flags, not device IDs, addresses, readings, or schedules |
 
@@ -93,7 +94,7 @@ managed aiohttp session. The library serializes its HTTP operations.
 
 | Data | Interval |
 |---|---|
-| Channels | 30 seconds when the raw-channel view has listeners |
+| Operational channels | 30 seconds while the entry is loaded; no advanced option required |
 | Parameters and identity | 300 seconds |
 | Optional PCB diagnostics | 60 seconds when diagnostic entities have listeners |
 
@@ -111,23 +112,79 @@ rolled back. No last requested setpoint/program is restored at startup.
 
 ## Sensors and controls
 
-Parameter sensors use reviewed English labels and controller circuit designations
-`1`, `2`, and `A`, not inferred room names. Configured/active settings are enabled
-by default; inactive alternatives are registered disabled. A program's sensor
-state is `active`/`inactive`, meaning firmware applicability, **not heating now**.
-Its `program` attribute contains the full current wire-shaped array; `limits`
-contains the library's immutable reviewed write-policy limits.
+The device page separates three different kinds of information:
 
-For USER temperatures, the unit and temperature device class are used only
-with the expected live Celsius metadata. These are targets/thresholds, not
-measured room temperatures. Slopes are dimensionless. No sensor is assigned
-an energy/cumulative state class.
+| HA section | Contents |
+|---|---|
+| **Sensors** | Reviewed operational readings, with descriptive names and verified native units |
+| **Configuration** | Writable numbers/selects, only after explicit per-setting write opt-in |
+| **Diagnostics** | Firmware version, setting readbacks, optional unclassified raw channels, and PCB readings |
 
-Raw channel and PCB units/scales have not been comprehensively verified. These
-sensors have **no inferred unit, device class, or statistics state class** and
-are explicitly labelled raw diagnostics. Enable the corresponding integration
-option, then enable only the diagnostic entities wanted. Unknown channel names
-are not guessed to be booleans, temperatures, energy counters, or operating modes.
+Primary sensors do **not** require the advanced diagnostic option. Recognized
+channels are discovered at setup and on later updates. Temperature readings
+use °C; fan speeds use rpm; reviewed oxygen/output/charge indications use %.
+Real measured temperatures and fan/oxygen readings support measurement
+statistics. Calculated targets/indications are labelled accordingly, without
+being treated as accumulated energy or measured thermal power. For example,
+boiler output indication is **percent, not kW**, and buffer charge indication
+is **not a liquid level or an energy meter**.
+
+Circuit designations `1`, `2`, and `A` are controller names, not inferred room
+names. Circuit/DHW settings help choose sensible defaults for optional readings;
+this is not authoritative discovery of installed sensors. A manually enabled
+reading remains the controller's report, even when the circuit is unused.
+No missing channel is manufactured, and disappearing/failed readings become
+unavailable rather than retaining an apparently current value.
+
+### Room temperature readings
+
+`Hk1Fr35RaumTemp`, `Hk2Fr35RaumTemp`, and `HkAFr35RaumTemp` are presented as
+**Circuit 1/2/A room temperature (reported)**. Firmware definitions identify
+these as °C, separately from the comfort/reduced **settings**. The reviewed
+firmware uses `-1` when no room unit is selected; this is shown as unavailable,
+not an actual room temperature. Zero is not treated as missing.
+
+The flat channel response supplies no per-sensor connection/validity flag or
+sample timestamp. A room unit can leave a retained reading when disconnected,
+and the known `-1` sentinel is ambiguous with a genuine reading of exactly
+−1 °C. Room readings therefore have no automatic statistics state class;
+they do not certify sensor presence/freshness or drive a thermostat algorithm.
+Optional readings initially unavailable/unconfigured are registered disabled;
+enable them in Entities once the physical setup and reported values are known.
+
+### Setting readbacks and extra diagnostics
+
+Read-only parameter values are **setting readbacks**, not measurements. Their
+entities are labelled accordingly, categorized Diagnostic, and disabled by
+default for new entities. HA does not permit read-only sensor entities in
+the Configuration category; opted-in number/select controls belong there.
+Temperature settings use the supplied Celsius metadata; slopes remain
+dimensionless. Program readbacks expose `program` and policy `limits`
+attributes. Their state `active`/`inactive` means firmware applicability,
+**not heating now**.
+
+The **Make additional diagnostic channels available (advanced)** option adds
+unclassified/internal channels only. These remain raw, disabled diagnostics
+with no guessed unit, device class, or statistics class. PCB diagnostics also
+remain optional/raw. Unknown names are not guessed to be temperatures, energy,
+booleans, or decoded operating states. The [channel guide](channel-guide.md)
+lists the curated keys and the evidence/limitations behind their interpretation.
+
+### Upgrade from 0.1.x
+
+Version **0.2.0** retains the existing channel and parameter unique IDs, entity
+IDs, custom names, and explicit user enable/disable choices. Previously raw
+curated readings move from Diagnostics to Sensors. When the old integration
+alone disabled them, they are automatically enabled only if the new reading's
+default is applicable/available and the entry permits new entities. Explicit
+user/device disables and the disable-new-entities preference are not overridden.
+
+Existing enabled setting readbacks move to Diagnostics but are not forcibly
+disabled. New readbacks start disabled. Old entity IDs may still contain
+`raw_`; that does not change their new name/category, and avoids breaking
+dashboard references. Review numeric automations after native units are added:
+HA's normal unit preferences may change the displayed unit. No setting is
+written by the entity-registry migration or the upgrade.
 
 ### Opt in to writes
 

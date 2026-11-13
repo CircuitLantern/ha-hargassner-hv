@@ -7,8 +7,9 @@ the Hargassner Smart HV 2.7.4 wood-log boiler firmware.
 The independent async Python library supports **USER parameters**, six reviewed
 **heating-curve slope** and three **circuit-mode exceptions**, and read-only
 **channels, device info, and PCB diagnostics**.
-The separate **Home Assistant custom integration** provides read-only sensors,
-opt-in number/select controls, and a dedicated circuit-program action through
+The separate **Home Assistant custom integration** provides operational
+telemetry sensors, diagnostic setting readbacks, opt-in number/select controls,
+and a dedicated circuit-program action through
 the same library. Its HACS-compatible development layout targets HA 2026.11.1;
 public installation still requires an SDK release and finalized release metadata.
 The protocol notes also distinguish
@@ -22,6 +23,7 @@ observations from a 3.4.0 unit.
 | `docs/library.md` | Library installation, Python API, write policy, lifecycle, errors, and CLI usage. |
 | `custom_components/hargassner_hv/` | Separate Home Assistant adapter: config flow, polling, sensors, opt-in controls, and program action. |
 | `docs/home-assistant.md` | Integration capabilities, development installation, entities/actions, testing, and release limitations. |
+| `docs/channel-guide.md` | Curated operational channel meanings, native units, validity limits, and firmware evidence. |
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
