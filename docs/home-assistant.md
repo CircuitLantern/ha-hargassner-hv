@@ -55,6 +55,40 @@ that directory, and the library distributions exclude HA code and tests.
 
 ### Local development installation
 
+For manual installation in your own HA OS/container instance, prepare a private
+bundle from the current checkout (Python 3.11+):
+
+```bash
+python -m pip install build 'setuptools>=77' wheel
+python tools/prepare_ha_dist.py
+```
+
+The script builds the independent SDK wheel without build isolation, stages
+the integration with a local-wheel manifest, and generates:
+
+- `dist/hargassner_hv-haos-<integration-version>/` — unpacked installation assets
+- `dist/hargassner_hv-haos-<integration-version>.zip` — the same assets to extract
+- `dist/hargassner_hv-haos-<integration-version>.zip.sha256` — ZIP checksum
+
+Read the generated `INSTALL.md`. Copy the bundled `custom_components/hargassner_hv`
+directory, including `wheels/`, into HA's configuration directory and restart
+Core. The manifest references the wheel inside that component as seen under
+Core's `/config`. Only the staged manifest is changed. No deployment, publication,
+HA connection, or boiler request is performed by the script.
+
+For repeat builds of the same integration version, use
+`python tools/prepare_ha_dist.py --replace`. This replaces only that version's
+script-marked directory, ZIP, and checksum; unrelated/older `dist` assets remain.
+Do not install stale top-level `dist` folders from earlier manually built bundles.
+
+**SDK changes need special care:** HA may keep an already-installed package
+when its version is unchanged. Increment the SDK version and update the source
+manifest pin for changed SDK runtime code, or explicitly reinstall the wheel
+in Core's Python environment. Replacing a same-version wheel and restarting is
+not a guaranteed SDK update. Integration-only edits can use the existing SDK.
+
+For a local Core Python environment instead:
+
 In the **same Python environment that runs Home Assistant**, install the SDK
 from this checkout or its built wheel:
 

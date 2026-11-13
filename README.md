@@ -24,6 +24,7 @@ observations from a 3.4.0 unit.
 | `custom_components/hargassner_hv/` | Separate Home Assistant adapter: config flow, polling, sensors, opt-in controls, and program action. |
 | `docs/home-assistant.md` | Integration capabilities, development installation, entities/actions, testing, and release limitations. |
 | `docs/channel-guide.md` | Curated operational channel meanings, native units, validity limits, and firmware evidence. |
+| `tools/prepare_ha_dist.py` | Build a private manual-install HA bundle, local SDK wheel, instructions, and checksums under `dist/`. |
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
