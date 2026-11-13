@@ -50,7 +50,11 @@
       "invalid_controls": "Select only the reviewed settings offered in this form."
     }
   },
-  "entity": {"select": {"circuit_mode": {"state": {
+  "entity": {"climate": {"circuit": {"state_attributes": {"preset_mode": {"state": {
+    "none": "None", "permanent_reduced": "Permanent reduced",
+    "permanent_comfort": "Permanent comfort", "once_comfort": "One-time comfort",
+    "once_reduced": "One-time reduced"
+  }}}}}, "select": {"circuit_mode": {"state": {
     "off": "Off", "automatic": "Automatic", "permanent_reduced": "Permanent reduced",
     "permanent_comfort": "Permanent comfort", "once_comfort": "One-time comfort",
     "once_reduced": "One-time reduced"

@@ -30,7 +30,7 @@ from .coordinator import (
 from .services import async_setup_services
 from .telemetry import OPERATIONAL_CHANNELS
 
-PLATFORMS = [Platform.SENSOR, Platform.NUMBER, Platform.SELECT]
+PLATFORMS = [Platform.SENSOR, Platform.NUMBER, Platform.SELECT, Platform.CLIMATE]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 

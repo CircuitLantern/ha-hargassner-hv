@@ -5,7 +5,7 @@ from hvclient import CIRCUIT_MODE_PARAMETERS, CIRCUIT_SCHEDULE_PARAMETERS
 
 DOMAIN = "hargassner_hv"
 NAME = "Hargassner Smart HV"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 CONF_ENABLED_WRITES = "enabled_writes"
 CONF_ACK_WRITES = "acknowledge_writes"
 CONF_RAW_CHANNELS = "raw_channels"

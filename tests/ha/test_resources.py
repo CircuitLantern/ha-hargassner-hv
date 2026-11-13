@@ -6,7 +6,7 @@ from pathlib import Path
 
 from homeassistant.helpers import translation
 
-from custom_components.hargassner_hv.const import CONTROL_LABELS, DOMAIN
+from custom_components.hargassner_hv.const import CONTROL_LABELS, DOMAIN, VERSION
 from hvclient import PARAMETER_WRITES
 
 
@@ -16,6 +16,7 @@ def test_manifest_and_hacs_layout_use_an_external_sdk_requirement():
     manifest = json.loads((integration / "manifest.json").read_text())
     hacs = json.loads((root / "hacs.json").read_text())
     assert manifest["domain"] == DOMAIN
+    assert manifest["version"] == VERSION == "0.3.0"
     assert manifest["requirements"] == ["hargassner-hvclient==0.1.0"]
     assert manifest["config_flow"] is True
     assert manifest["iot_class"] == "local_polling"
@@ -51,3 +52,5 @@ async def test_real_ha_loads_custom_english_translations(hass):
     assert config[f"component.{DOMAIN}.config.step.user.data.host"] == "Host"
     options = await translation.async_get_translations(hass, "en", "options", {DOMAIN})
     assert f"component.{DOMAIN}.options.step.init.data.enabled_writes" in options
+    entities = await translation.async_get_translations(hass, "en", "entity", {DOMAIN})
+    assert entities[f"component.{DOMAIN}.entity.climate.circuit.state_attributes.preset_mode.state.once_comfort"] == "One-time comfort"

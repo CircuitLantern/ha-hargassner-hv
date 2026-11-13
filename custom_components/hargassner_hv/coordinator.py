@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
+from time import monotonic
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -50,10 +51,16 @@ class HargassnerCoordinator(DataUpdateCoordinator[Any]):
         super().__init__(hass, _LOGGER, config_entry=entry, name=f"{DOMAIN} {name}",
                          update_interval=timedelta(seconds=seconds))
         self._fetch = fetch
+        # Start time, not completion time: a slow old poll must not supersede a
+        # verified write that completed while that poll was in flight.
+        self.observed_at = 0.0
 
     async def _async_update_data(self) -> Any:
         try:
-            return await self._fetch()
+            started = monotonic()
+            result = await self._fetch()
+            self.observed_at = started
+            return result
         except IdentityError:
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="identity_changed") from None
         except HargassnerError:
@@ -90,6 +97,8 @@ class RuntimeData:
     raw_channels: bool
     closed: bool = False
     _operations: set[asyncio.Task] = field(default_factory=set, repr=False)
+    _control_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    mode_readbacks: dict[str, tuple[int, float]] = field(default_factory=dict, repr=False)
 
     @property
     def info(self) -> SystemInfo:
@@ -122,13 +131,20 @@ class RuntimeData:
         if task is not None:
             self._operations.add(task)
         try:
-            yield
+            async with self._control_lock:
+                # Queued controls may outlive their permission/state snapshot.
+                if self.closed or name not in self.enabled_writes:
+                    raise ServiceValidationError(translation_domain=DOMAIN, translation_key="writes_disabled")
+                if not self.parameters.last_update_success or self.parameter(name) is None:
+                    raise ServiceValidationError(translation_domain=DOMAIN, translation_key="state_unavailable")
+                yield
         finally:
             if task is not None:
                 self._operations.discard(task)
 
     async def async_control(
         self, name: str, requested: Any, *, expected: Any = _UNSET, preview: bool = False,
+        guard: Callable[[], Awaitable[None]] | None = None,
     ) -> Any:
         """One SDK call; never retry a write, roll back, or optimistically update."""
         async with self._operation(name):
@@ -138,11 +154,14 @@ class RuntimeData:
                 expected = parameter.value.id if isinstance(parameter.value, Choice) else parameter.value
             try:
                 await self.parameters.verify_identity()
+                if guard is not None:
+                    await guard()
                 if preview:
                     kwargs = {} if expected is _UNSET else {"expected": expected}
                     return await self.client.async_preview_parameter_write(name, requested, **kwargs)
                 result = await self.client.async_set_parameter(name, requested, expected=expected)
             except WriteVerificationError as error:
+                self.mode_readbacks.pop(name, None)
                 await self.parameters.async_request_refresh()
                 key = "write_mismatch" if isinstance(error, WriteMismatchError) else "write_unknown"
                 raise HomeAssistantError(translation_domain=DOMAIN, translation_key=key) from None
@@ -160,11 +179,16 @@ class RuntimeData:
             # value. A debounced full refresh may otherwise leave stale UI state
             # (and stale expected values) after a successful consecutive command.
             if not result.verified or result.after is None:
+                self.mode_readbacks.pop(name, None)
                 await self.parameters.async_request_refresh()
                 raise HomeAssistantError(translation_domain=DOMAIN, translation_key="write_unknown")
             current = self.parameters.data
             parameters = dict(current.parameters)
             parameters[name] = result.after
+            if (name in {definition.name for definition in CIRCUIT_MODE_PARAMETERS.values()}
+                    and result.outcome == "verified"
+                    and isinstance(result.after.value, Choice)):
+                self.mode_readbacks[name] = (result.after.value.id, monotonic())
             self.parameters.async_set_updated_data(ParameterData(current.info, parameters))
             await self.parameters.async_request_refresh()
             return result

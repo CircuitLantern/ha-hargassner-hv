@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from aiohttp import web
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -108,3 +108,86 @@ async def test_real_sdk_wire_never_requests_service_or_replays(hass, make_entry,
     }
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert not async_get_clientsession(hass).closed
+
+
+@pytest.mark.parametrize("zone", ["1", "2", "A"])
+async def test_climate_real_sdk_persistent_targets_and_runtime_expiry(hass, make_entry, device_server, zone):
+    device, port, weekly = device_server
+    mode_name, comfort, reduced, selector = {
+        "1": ("A1z", "4", "5", "A1"),
+        "2": ("A11z", "7", "8", "A11"),
+        "A": ("A61z", "HP4", "HP5", "A61"),
+    }[zone]
+    if zone == "A":
+        device.catalog["HP3a" if weekly else "HP3"]["active"] = True
+        device.catalog[selector]["value"]["id"] = 2
+        device.catalog[comfort]["active"] = device.catalog[reduced]["active"] = True
+    device.channels.update({f"Hk{zone}Status": device.catalog[mode_name]["value"]["id"],
+                            f"Hk{zone}Fr35RaumTemp": 0})
+
+    def update_runtime(device):
+        if device.posts()[-1]["body"]["parameters"][0]["name"] == mode_name:
+            device.channels[f"Hk{zone}Status"] = device.catalog[mode_name]["value"]["id"]
+
+    device.after_write = update_runtime
+    entry = make_entry(writes=(mode_name, comfort, reduced))
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "host": "127.0.0.1", "port": port})
+    with patch("custom_components.hargassner_hv.AsyncHargassnerClient", AsyncHargassnerClient):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, f"{entry.unique_id}_climate_{zone}")
+
+    async def call(service, **data):
+        await hass.services.async_call("climate", service, {"entity_id": entity_id, **data}, blocking=True)
+
+    assert not device.posts()
+    assert hass.states.get(entity_id).attributes["current_temperature"] == 0
+    for preset, mode, target in (("once_comfort", 4, comfort), ("once_reduced", 5, reduced)):
+        await call("set_preset_mode", preset_mode=preset)
+        before_posts = len(device.posts())
+        await call("set_preset_mode", preset_mode=preset)
+        assert len(device.posts()) == before_posts  # No one-time rearming.
+        with pytest.raises(ServiceValidationError):
+            await call("set_temperature", temperature=22, hvac_mode="auto")
+        assert len(device.posts()) == before_posts
+        await call("set_temperature", temperature=22, hvac_mode="heat")
+        assert device.posts()[-1]["body"] == {"parameters": [{"name": target, "value": 22.0}]}
+        device.channels[f"Hk{zone}Status"] = 1  # Expiry can leave hidden command parameter unchanged.
+        await entry.runtime_data.channels.async_refresh()
+        await entry.runtime_data.parameters.async_refresh()
+        assert hass.states.get(entity_id).state == "auto"
+        assert device.catalog[mode_name]["value"]["id"] == mode
+        assert device.catalog[target]["value"] == 22
+        assert len(device.posts()) == before_posts + 1
+        with pytest.raises(ServiceValidationError):
+            await call("set_preset_mode", preset_mode=preset)
+        assert len(device.posts()) == before_posts + 1  # No forced/replayed old stored command.
+    assert len(device.posts()) == 4
+    assert all(request["body"]["daqOnly"] is True for request in device.auths())
+    assert {request["path"] for request in device.requests} <= {
+        "/authenticate", "/challenge", "/info", "/channels", "/parameters",
+    }
+    assert device.catalog["D9"]["value"] is weekly
+    assert device.catalog[selector]["value"]["id"] == 2
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert len(device.posts()) == 4
+
+
+@pytest.mark.parametrize("service,data", [
+    ("set_preset_mode", {"preset_mode": "once_comfort"}),
+    ("set_temperature", {"temperature": 22}),
+])
+async def test_climate_lost_response_does_not_retry(hass, make_entry, device_server, service, data):
+    device, port, _ = device_server
+    device.channels["Hk1Status"] = 3
+    entry = make_entry(writes=("A1z", "4"))
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "host": "127.0.0.1", "port": port})
+    with patch("custom_components.hargassner_hv.AsyncHargassnerClient", AsyncHargassnerClient):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, f"{entry.unique_id}_climate_1")
+    device.disconnect_after_write = True
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call("climate", service, {"entity_id": entity_id, **data}, blocking=True)
+    assert len(device.posts()) == 1
+    assert all(request["body"]["daqOnly"] is True for request in device.auths())
