@@ -3,10 +3,11 @@
 
 from contextlib import AsyncExitStack
 
-from homeassistant.const import CONF_HOST, CONF_PORT, Platform
+from homeassistant.const import CONF_HOST, CONF_PORT, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
@@ -27,6 +28,7 @@ from .coordinator import (
     RuntimeData,
 )
 from .services import async_setup_services
+from .telemetry import OPERATIONAL_CHANNELS
 
 PLATFORMS = [Platform.SENSOR, Platform.NUMBER, Platform.SELECT]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -78,3 +80,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: HargassnerConfigEntry) -
 
 async def async_unload_entry(hass: HomeAssistant, entry: HargassnerConfigEntry) -> None:
     await hass.config_entries.async_unload_platforms_or_raise(entry, PLATFORMS)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: HargassnerConfigEntry) -> None:
+    """Reclassify readbacks and promote old raw entities without replacing IDs."""
+    if entry.version != 1:
+        raise ConfigEntryError(translation_domain=DOMAIN, translation_key="identity_changed")
+    if entry.minor_version < 2:
+        registry = er.async_get(hass)
+        channels = {f"{entry.unique_id}_channel_{name}" for name in OPERATIONAL_CHANNELS}
+        prefix = f"{entry.unique_id}_parameter_"
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if entity.domain != "sensor" or entity.platform != DOMAIN:
+                continue
+            if entity.unique_id.startswith(prefix):
+                registry.async_update_entity(entity.entity_id, entity_category=EntityCategory.DIAGNOSTIC)
+            elif entity.unique_id in channels:
+                registry.async_update_entity(entity.entity_id, entity_category=None)
+        hass.config_entries.async_update_entry(entry, version=1, minor_version=2)

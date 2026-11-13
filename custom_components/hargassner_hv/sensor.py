@@ -1,22 +1,23 @@
 # SPDX-License-Identifier: MPL-2.0
-"""Read-only parameter state and explicitly enabled raw diagnostics."""
+"""Operational readings, diagnostic setting readbacks, and optional raw channels."""
 
 from dataclasses import asdict
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 
 from hvclient import (
-    CIRCUIT_MODE_WRITES,
     CIRCUIT_SCHEDULE_WRITES,
     NUMERIC_USER_WRITES,
     Choice,
     HeatingCircuitMode,
 )
 
-from .const import CONTROL_LABELS
+from .const import CONTROL_LABELS, DOMAIN
 from .entity import HargassnerEntity, HargassnerParameterEntity
+from .telemetry import OPERATIONAL_CHANNELS, OperationalChannel
 
 PARALLEL_UPDATES = 0
 
@@ -25,6 +26,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     runtime = entry.runtime_data
     known_parameters = set()
     known_channels = set()
+    registry = er.async_get(hass)
 
     @callback
     def add_parameters():
@@ -44,30 +46,45 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities = []
         for name in runtime.channels.data:
             if name not in known_channels:
-                known_channels.add(name)
-                entities.append(RawChannelSensor(entry, name))
+                if name in OPERATIONAL_CHANNELS:
+                    known_channels.add(name)
+                    entity = OperationalChannelSensor(entry, OPERATIONAL_CHANNELS[name])
+                    assert entity.unique_id is not None
+                    old_id = registry.async_get_entity_id("sensor", DOMAIN, entity.unique_id)
+                    old = registry.async_get(old_id) if old_id is not None else None
+                    if (old is not None and old.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+                            and old.original_name == f"Raw {name}"
+                            and entity.entity_registry_enabled_default
+                            and not entry.pref_disable_new_entities):
+                        # Promote only the old integration-hidden default. User
+                        # disables, names, IDs, and global preferences survive.
+                        registry.async_update_entity(old.entity_id, disabled_by=None)
+                    entities.append(entity)
+                elif runtime.raw_channels:
+                    known_channels.add(name)
+                    entities.append(RawChannelSensor(entry, name))
         if entities:
             async_add_entities(entities)
 
     add_parameters()
     async_add_entities([FirmwareSensor(entry)])
     entry.async_on_unload(runtime.parameters.async_add_listener(add_parameters))
-    if runtime.raw_channels:
-        add_channels()
-        entry.async_on_unload(runtime.channels.async_add_listener(add_channels))
+    # Operational telemetry is a primary feature, independent of the advanced
+    # raw-diagnostics option. Also discover channels appearing after startup.
+    add_channels()
+    entry.async_on_unload(runtime.channels.async_add_listener(add_channels))
     if runtime.pcb is not None:
         async_add_entities([PcbSensor(entry, "internal_temperature", "PCB temperature (raw)"),
                             PcbSensor(entry, "internal_voltage", "PCB voltage (raw)")])
 
 
 class ParameterSensor(HargassnerParameterEntity, SensorEntity):
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
     def __init__(self, entry, name, label):
-        super().__init__(entry, name, label)
+        super().__init__(entry, name, f"{label} (setting readback)")
         parameter = self.parameter
-        if name in CIRCUIT_MODE_WRITES:
-            self._attr_entity_registry_enabled_default = self.runtime.circuit_present(parameter.meaning.zone)
-        else:
-            self._attr_entity_registry_enabled_default = parameter.active is True
         if name in NUMERIC_USER_WRITES and parameter.unit == "°C":
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -137,6 +154,39 @@ class RawChannelSensor(HargassnerEntity, SensorEntity):
     @property
     def native_value(self):
         return self.coordinator.data.get(self.channel) if self.coordinator.data is not None else None
+
+
+class OperationalChannelSensor(HargassnerEntity, SensorEntity):
+    """One reviewed runtime channel, retaining the previous raw entity identity."""
+
+    def __init__(self, entry, description: OperationalChannel):
+        super().__init__(entry, entry.runtime_data.channels, f"channel_{description.key}", description.name)
+        self.description = description
+        self._attr_native_unit_of_measurement = description.unit
+        self._attr_device_class = description.device_class
+        self._attr_state_class = description.state_class
+        configured = description.circuit is None or self.runtime.circuit_present(description.circuit)
+        if description.default_active_parameter is not None:
+            parameter = self.runtime.parameter(description.default_active_parameter)
+            configured = configured and parameter is not None and parameter.active is True
+        self._attr_entity_registry_enabled_default = self.available and configured
+
+    @property
+    def available(self):
+        if not super().available or self.coordinator.data is None:
+            return False
+        return (self.description.key in self.coordinator.data
+                and self.coordinator.data[self.description.key] not in self.description.unavailable_values)
+
+    @property
+    def native_value(self):
+        if not self.available:
+            return None
+        return self.coordinator.data[self.description.key]
+
+    @property
+    def extra_state_attributes(self):
+        return {"channel": self.description.key}
 
 
 class PcbSensor(HargassnerEntity, SensorEntity):

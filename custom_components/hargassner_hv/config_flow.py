@@ -38,6 +38,7 @@ from .identity import IdentityError, identities, identity
 
 class HargassnerConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+    MINOR_VERSION = 2
 
     @staticmethod
     @callback

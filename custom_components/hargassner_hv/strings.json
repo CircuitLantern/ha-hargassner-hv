@@ -37,8 +37,11 @@
         "data": {
           "enabled_writes": "Allow writes to these settings",
           "acknowledge_writes": "I understand the operational risk of enabling selected writes",
-          "raw_channels": "Register optional raw channel sensors (disabled by default)",
+          "raw_channels": "Make additional diagnostic channels available (advanced)",
           "pcb_diagnostics": "Read optional PCB diagnostics (raw, disabled by default)"
+        },
+        "data_description": {
+          "raw_channels": "Reviewed operating readings are already normal sensors. This adds unclassified internal channels as disabled diagnostic entities."
         }
       }
     },
