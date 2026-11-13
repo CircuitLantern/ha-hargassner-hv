@@ -32,6 +32,9 @@ client, and never attempts to restore an assumed operating mode.
 
 This is not a `climate` entity or thermostat algorithm. Other USER values and
 unreviewed installer settings are not automatically exposed as controls.
+Per-circuit climate entities are a proposed extension, not yet implemented;
+see the [climate feature plan](climate-development-plan.md) for the mapping,
+pending decisions, and validation gates.
 
 ## Installation status
 

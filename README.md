@@ -28,6 +28,7 @@ observations from a 3.4.0 unit.
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
+| `docs/climate-development-plan.md` | Proposed per-circuit climate entities: HVAC/preset mapping, pending decisions, safety boundaries, and validation gates. |
 | `tests/test_library_live.py` | Opt-in hardware smoke test: reads and previews only, with extra request guards; skipped by default. |
 | `tools/probe.py` | GET-oriented probe; `daqOnly=true` by default (not a server-side write restriction). |
 | `tools/set_parameter.py` | Guarded one-parameter numeric setter; preview by default, always `daqOnly=true`, verified read-back, no write replay. |

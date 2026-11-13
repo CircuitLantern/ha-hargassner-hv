@@ -17,6 +17,19 @@ and other device routes are not part of the current delivery.
 - Transport: local `http://<boiler>:80/`; no cloud dependency or TLS at the boiler.
 - Final consumer: **Home Assistant**.
 
+### Planned extension: circuit climate entities
+
+The [climate feature development plan](climate-development-plan.md) records the
+investigation for one entity per heating circuit, an Off/Auto/Heat plus preset
+mapping of all six circuit modes, controller-owned one-time expiry, permission
+boundaries, target-editing semantics, and offline validation gates. The user
+approved permanent comfort as the Heat default, persistent target editing in
+both permanent and one-time presets, and registration only for applicable
+circuits with mode writes opted in. This is a
+proposed convenience layer over the existing SDK/controls, not a new thermostat
+algorithm. Its remaining command details require explicit approval before
+implementation; it is not part of the currently implemented capabilities.
+
 ## 1. Goal and deliverables
 
 Build a small reusable Python library for the boiler HTTP API, then a separate
