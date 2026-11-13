@@ -2,11 +2,13 @@
 
 # Feature development plan — heating-circuit climate entities
 
-Status: **investigated; core behavior decisions approved; not implemented**.
-The user requested one climate entity per zone and approved the Heat default,
-persistent target editing in all four presets, and mode-opt-in-based registration.
-The exact approval record and remaining command details are in section 9.
-No live requests or hardware writes were made for the investigation.
+Status: **implemented for offline development/testing in integration 0.3.0**.
+Mode/preset controls, persistent targets in all four presets, and mode-opt-in
+registration are implemented. The remaining command rules were explicitly
+approved before implementation; see section 9. Actual HA Core and synthetic
+loopback coverage are included; no live requests or hardware writes were made.
+Deployment, physical effects, deployed-firmware compatibility, and visual UI
+validation remain separate gates, not claims of production readiness.
 
 This feature extends the [main development plan](client-development-plan.md)
 and the existing [Home Assistant adapter](home-assistant.md), targeting the
@@ -71,11 +73,11 @@ parameter metadata. Firmware evidence and the current numeric controls identify:
 | A | `A61z` | `HP4` | `HP5` | `HkAFr35RaumTemp` | `HkAStatus` |
 
 The runtime mode-channel binding is code-derived, not a validated deployment
-contract. It needs compatibility/range checks and synchronization investigation
-before being used as the authoritative climate state. Do not confuse `Status`
+contract. The implementation checks exact channel names and finite integral IDs
+0–5 and treats missing/invalid channels as unavailable. Do not confuse `Status`
 (selected runtime mode) with `Zustand` (circuit operating state) or flow targets.
 
-## 3. Proposed HVAC/preset mapping
+## 3. Implemented HVAC/preset mapping
 
 | Controller mode | ID | HVAC mode | Preset key | Display label |
 |---|---:|---|---|---|
@@ -94,9 +96,9 @@ An alternative is Auto with temporary presets, but the proposed mapping keeps
 plain Auto unambiguously scheduled and groups all explicit overrides under Heat.
 The controller's eventual return to Automatic becomes Heat → Auto in HA.
 
-### Command semantics — approved Heat default; other details proposed
+### Command semantics — approved and implemented
 
-| Action | Proposed controller operation |
+| Action | Controller operation |
 |---|---|
 | Set Off | Write mode 0 for this circuit only |
 | Set Auto | Write mode 1, cancelling any override |
@@ -111,8 +113,8 @@ The controller's eventual return to Automatic becomes Heat → Auto in HA.
 A named preset is an explicit circuit-mode selection, not a separate turn-on
 followed by another write. Re-selecting an already selected mode must not invent
 an override rearming mechanism. No last-preset datastore or startup restoration.
-Specify and test these rules before implementation; a generic Heat button cannot
-encode all four overrides without a documented default.
+These rules are covered by the actual-HA command matrix tests; a generic Heat
+button cannot encode all four overrides without a documented default.
 
 ## 4. One-time modes are controller-owned
 
@@ -208,10 +210,10 @@ Do not claim atomicity the API cannot provide.
 
 | Phase | Work | Gate |
 |---|---|---|
-| A — Finalize behavior | Record approved core decisions and resolve remaining command details below | Core decisions approved; unanswered details are not approval |
-| B — Resolve state contract | Trace mode-parameter/runtime-channel synchronization and controller-owned expiry; define source precedence/failure policy | Code evidence and synthetic cases; scoped live reads only if separately authorized |
-| C — Mode-only climate | Add platform, per-circuit descriptions, HVAC/presets, native units, optional room reading, translations, identity and availability | Actual-HA and HA→SDK→HTTP offline tests; no new SDK permissions |
-| D — Target editing | Implement approved persistent routing for permanent and one-time presets, feature gating, metadata bounds/steps, conflict checks, and rejection of multi-write requests | Target behavior approved; actual-HA and loopback coverage required before delivery |
+| A — Finalize behavior | Approved core decisions and complete command matrix | Complete; section 9 records approval |
+| B — Resolve state contract | Runtime-channel precedence and conservative failure policy | Complete offline; deployed compatibility still unvalidated |
+| C — Mode climate | Platform, HVAC/presets, native units, optional room reading, translations, identity and availability | Implemented with actual-HA tests; no new SDK permissions |
+| D — Target editing | Persistent routing, feature gating, bounds/steps, conflict checks, single-write actions | Implemented with actual-HA and loopback coverage |
 | E — Development installation | Update guide and regenerate the private bundle using the existing tool | Manual installation/restart verified; no automatic deployment |
 | F — Controlled validation | Observe state convergence/expiry; test selected writes only under a separate agreed hardware procedure | No assumption of physical effects, reboot persistence, or production readiness |
 
@@ -220,17 +222,35 @@ Keep HA-only presentation code in `custom_components/hargassner_hv/`. Reuse
 verified readback, and error translation. Protocol/validation fixes belong in
 `src/hvclient/` and require independent SDK tests/version handling if changed.
 
-Subscribe to both parameter and channel coordinators without extra polling
-loops. Current intervals are 300 seconds for parameters and 30 seconds for
-channels. Validate `Hk*Status` as the selected runtime mode and define how it
-interacts with freshly verified mode-parameter readback; do not silently display
-an expired preset for five minutes or let an older channel snapshot overwrite a
-newly verified write. Do not restore requested state optimistically.
+The climate entity subscribes to both coordinators without extra polling loops.
+Current intervals remain 300 seconds for parameters and 30 seconds for channels.
+`Hk*Status` is authoritative runtime mode; ordinary parameter polls cannot
+overwrite it. A verified SDK mode readback (also from a select command) takes
+precedence only until a successful channel poll started after verification.
+SDK `unchanged` results are not new mode writes and cannot replace runtime mode.
+If a requested mode differs from runtime but already equals the stored command,
+climate refuses the ambiguous transition rather than forcing the SDK to replay
+an unchanged setting or reporting a transition that did not occur.
+Poll start timestamps protect against an older in-flight poll completing late.
+Missing/invalid mode channels or failed required coordinators disable climate;
+there is no last-command-parameter fallback. Room feedback is independently
+optional. Readback precedence is in-memory convergence state for three settings,
+not requested-state restoration, a history system, or a persistent datastore.
 
-A combined `set_temperature`/HVAC-mode action that requires two writes should
-be rejected before either write. Define whether a supplied mode already matching
-the current mode is accepted; also reject unsupported ranges/extra control fields.
-Do not partially apply, roll back, or replay the request.
+All adapter controls share a per-entry operation lock, including previews.
+Climate writes verify identity and then refresh channels under that lock;
+changed/unknown mode refuses a queued operation. Target routing is captured once,
+with the SDK validating the expected persistent target before its single POST.
+The exact SDK metadata/grid validators are reused without changing the SDK or
+its permissions. Unit-conversion noise is corrected only within eight float ULPs
+and less than one billionth of an increment, before exact SDK grid validation.
+No rounding of genuinely off-grid values or cross-parameter atomicity is claimed.
+
+A combined `set_temperature`/HVAC-mode action that requires two writes is
+rejected before either write. An already-matching mode is accepted and only the
+current target is written. Unsupported ranges/extra control fields are rejected;
+HA's standard service-target fields are ignored as routing metadata. Requests
+are never partially applied, rolled back, or replayed.
 
 ## 8. Offline acceptance coverage
 
@@ -258,7 +278,7 @@ Do not partially apply, roll back, or replay the request.
 - Loopback assertions verify request names/body/counts, explicit safe
   authentication, separate readback, and no retry/rollback after uncertain writes.
 
-## 9. Approval record and remaining details
+## 9. Approval record
 
 The user's numbered replies refer to the three questions closing the climate
 investigation, not the previous five-item list in this document:
@@ -271,14 +291,43 @@ investigation, not the previous five-item list in this document:
 3. **Registration — approved:** create climate controls only for applicable
    circuits with the mode-write permission explicitly enabled.
 
-Remaining command details to confirm before implementation:
+The user subsequently requested implementation and explicitly approved:
 
-- The complete Off/Auto/Heat plus four-preset matrix, especially selecting None
-  during an override versus while Off/Auto.
-- Automatic as the meaning of Turn on. The approval of the Heat default does
-  not itself decide Turn on, which was not one of the three numbered questions.
-- Treatment of a combined temperature request containing a mode that already
-  matches the current mode; requests requiring two writes remain excluded.
+- The complete command matrix: selecting None returns an override to Automatic,
+  leaves Off/Auto unchanged, Turn on selects Automatic, and a named preset
+  selects its exact circuit mode directly, including from Off.
+- Accept a temperature request with an already-matching HVAC mode, writing only
+  the selected preset's persistent target. Requests requiring two writes remain
+  excluded and are rejected before any POST.
 
-Updating this plan records approved design decisions, not completed implementation
-or authorization to commit, publish, make new hardware requests, or perform live writes.
+Implementation authorization does not authorize commits, publication, automatic
+deployment, new hardware requests, or live writes. The integration guide records
+the delivered behavior and remaining hardware/UI validation limitations.
+
+## 10. Offline validation record
+
+- HA 2026.11.1: **177 tests passed**, including command matrices, all three
+  circuits, dynamic target permissions, Fahrenheit conversion, runtime/parameter
+  divergence, genuinely in-flight stale polls, queued controls, cancellation,
+  controller-owned expiry, and real SDK loopback requests/lost responses.
+- Independent SDK/distribution suite: **234 passed, one live test skipped**,
+  with **550 subtests passed**. SDK source and version are unchanged.
+- HA-adapter and SDK typing, adapter/test lint, documentation links/anchors,
+  and whitespace checks passed. HA dependencies report existing deprecation
+  warnings; no climate-specific warning was observed.
+- Private 0.3.0 bundle built and integrity/checksum-checked, with the SDK wheel
+  inside the component and the existing brand assets. Source manifest pin is
+  unchanged; older distribution assets are retained. Read the generated
+  installation instructions and install manually; nothing was deployed.
+
+These checks are offline. They do not validate physical heating, deployed
+runtime-mode synchronization, reboot persistence, or visual dashboard behavior.
+
+## 11. Initial user-reported live check
+
+After manual installation and testing, the user reported that the climate
+entities appeared to work correctly so far. No particular command sequence,
+expiry observation, target persistence after expiry, or reboot test was reported.
+Record this as an encouraging initial live smoke check, not verification of
+every mode transition, physical heating effect, or firmware compatibility case.
+No additional hardware requests or automatic deployment were made by the agent.

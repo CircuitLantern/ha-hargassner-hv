@@ -3,13 +3,17 @@
 # Hargassner Smart HV
 
 Custom Home Assistant integration using the separately installed `hvclient`
-library. Configuration and normal polling only read. Number/select controls
+library. Configuration and normal polling only read. Climate/number/select controls
 and the dedicated program action require explicit per-setting write opt-in.
 The supported calls were curated to avoid initiating the boiler's SERVICE mode.
 
 Reviewed operating temperatures, fan speed, oxygen, and calculated indications
 are normal Sensors and do not require the advanced diagnostic option. Setting
-readbacks are Diagnostics; opted-in writable controls are Configuration.
+readbacks are Diagnostics; opted-in writable numbers/selects are Configuration.
+Applicable circuits with mode writes enabled also have normal climate controls.
+Their four presets preserve the controller's permanent/one-time distinction;
+the temperature dial edits persistent comfort/reduced settings, including in
+one-time presets. Expiry stays controller-owned and does not restore old targets.
 Unclassified channels remain optional diagnostics. Upgrades retain entity IDs,
 custom names, and explicit user enable/disable choices.
 

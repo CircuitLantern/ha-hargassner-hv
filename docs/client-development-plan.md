@@ -5,7 +5,7 @@
 Status: the independent async library and thin testing CLI support **USER
 parameters, six heating-curve slope and three circuit-mode exceptions, and read-only channels,
 device info, and PCB diagnostics**. A separate Home Assistant custom integration
-now implements config flow, coordinators, sensors, opt-in numeric/mode controls,
+now implements config flow, coordinators, sensors, opt-in climate/numeric/mode controls,
 and a guarded full-program action against HA 2026.11.1. It has synthetic/loopback
 coverage, not live deployment or write validation. See [the integration guide](home-assistant.md) and the
 [implemented API](library.md). Other installer-level parameters, identity mutation,
@@ -17,18 +17,20 @@ and other device routes are not part of the current delivery.
 - Transport: local `http://<boiler>:80/`; no cloud dependency or TLS at the boiler.
 - Final consumer: **Home Assistant**.
 
-### Planned extension: circuit climate entities
+### Implemented extension: circuit climate entities
 
 The [climate feature development plan](climate-development-plan.md) records the
-investigation for one entity per heating circuit, an Off/Auto/Heat plus preset
+design for one entity per heating circuit, an Off/Auto/Heat plus preset
 mapping of all six circuit modes, controller-owned one-time expiry, permission
 boundaries, target-editing semantics, and offline validation gates. The user
 approved permanent comfort as the Heat default, persistent target editing in
 both permanent and one-time presets, and registration only for applicable
-circuits with mode writes opted in. This is a
-proposed convenience layer over the existing SDK/controls, not a new thermostat
-algorithm. Its remaining command details require explicit approval before
-implementation; it is not part of the currently implemented capabilities.
+circuits with mode writes opted in, followed by the complete command matrix.
+Integration 0.3.0 implements this convenience layer over existing SDK/controls,
+not a new thermostat algorithm. Runtime channels observe expiry; verified mode
+readbacks are protected against older polls. Controls share a lock and reject
+ambiguous target routing or multi-write actions. Actual-HA/loopback tests are
+offline coverage, not live hardware or visual UI validation.
 
 ## 1. Goal and deliverables
 
@@ -402,6 +404,7 @@ normal entity lifecycle. There is no second polling scheduler in the library.
 | `binary_sensor` | Future values whose boolean semantics are verified | Not implemented; raw 0/1 channels are not guessed to be booleans |
 | `number` | Validated writable numeric customer parameters | Opt-in; use units, min/max, and step from validated metadata |
 | `select` | Validated writable choice parameters | Opt-in; preserve API choice IDs separately from translated labels |
+| `climate` | Applicable opted-in circuits, six modes, and persistent comfort/reduced targets | Implemented in 0.3.0; runtime-mode state, optional reported room feedback, no inferred HVAC action |
 | `switch` | Future validated ordinary boolean settings | Not implemented; the SDK currently permits no boolean writes |
 
 Not every USER parameter warrants an entity. The six reviewed daily/weekly
@@ -415,9 +418,10 @@ unique IDs, not localized display names. Specify units, device classes, and stat
 classes only where semantics are known. Do not declare cumulative/energy
 statistics merely because a channel is numeric.
 
-A `climate` entity is optional future work only if verified controls support its
-contract; the presence of a room setpoint alone does not establish HVAC mode,
-action, or temperature semantics. No custom heating algorithm is planned.
+The [climate feature](climate-development-plan.md) uses reviewed mode and target
+controls, not the mere presence of a room setpoint. HVAC action is not inferred;
+regulation and one-time expiry remain controller-owned. No custom heating
+algorithm is planned. Offline coverage does not establish hardware effects.
 
 ### 5.4 Configuration, presentation, and history ownership
 

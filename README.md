@@ -8,7 +8,7 @@ The independent async Python library supports **USER parameters**, six reviewed
 **heating-curve slope** and three **circuit-mode exceptions**, and read-only
 **channels, device info, and PCB diagnostics**.
 The separate **Home Assistant custom integration** provides operational
-telemetry sensors, diagnostic setting readbacks, opt-in number/select controls,
+telemetry sensors, diagnostic setting readbacks, opt-in climate/number/select controls,
 and a dedicated circuit-program action through
 the same library. Its HACS-compatible development layout targets HA 2026.11.1;
 public installation still requires an SDK release and finalized release metadata.
@@ -28,7 +28,7 @@ observations from a 3.4.0 unit.
 | `docs/boiler-http-api.md` | Reverse-engineered API, auth, routing, and endpoint reference. |
 | `docs/parameter-guide.md` | English parameter meanings, plant terminology, and a crosswalk to the German electrical/service manuals. |
 | `docs/client-development-plan.md` | Independent async library, optional thin CLI, and Home Assistant integration plan; no custom GUI or data store. |
-| `docs/climate-development-plan.md` | Proposed per-circuit climate entities: HVAC/preset mapping, pending decisions, safety boundaries, and validation gates. |
+| `docs/climate-development-plan.md` | Per-circuit climate feature: approved HVAC/preset mapping, persistent targets, state safety, implementation, and validation gates. |
 | `tests/test_library_live.py` | Opt-in hardware smoke test: reads and previews only, with extra request guards; skipped by default. |
 | `tools/probe.py` | GET-oriented probe; `daqOnly=true` by default (not a server-side write restriction). |
 | `tools/set_parameter.py` | Guarded one-parameter numeric setter; preview by default, always `daqOnly=true`, verified read-back, no write replay. |
@@ -146,6 +146,11 @@ opt-in, program-action examples, and the separate HA test environment.
 The integration imports the independently installed SDK; no library source is
 copied into it. Configuration/polling do not write. The supported calls were
 curated to avoid initiating the boiler's SERVICE mode.
+
+Integration 0.3.0 adds a climate entity for each applicable circuit with mode
+writes enabled: Off/Auto/Heat plus four exact presets. The dial edits individually
+opted-in persistent comfort/reduced targets, including in one-time presets;
+expiry stays controller-owned. Existing numbers/selects remain available.
 
 The repository is HACS-layout ready, **not publicly release-ready**: the pinned
 SDK is not published yet, manifest URLs are reserved placeholders, and public

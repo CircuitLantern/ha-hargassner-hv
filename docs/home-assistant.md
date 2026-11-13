@@ -17,6 +17,7 @@ No cloud, MQTT bridge, custom dashboard, or separate polling service is needed.
 | Setting readbacks | Parameter values and programs under Diagnostics, disabled by default for new entities |
 | Number controls | 11 temperature settings and 6 slopes, individually opted in |
 | Mode selects | Circuit 1/2/A: Off, Automatic, permanent reduced/comfort, one-time reduced/comfort |
+| Climate controls | One per applicable, mode-opted-in circuit; Off/Auto/Heat, four presets, and individually opted-in persistent targets |
 | Program action | Preview or replace one circuit's full daily/weekly comfort program |
 | Additional diagnostic channels | Optional unclassified/internal readings, disabled by default |
 | PCB diagnostics | Optional raw temperature/voltage readings, disabled by default |
@@ -26,15 +27,15 @@ No cloud, MQTT bridge, custom dashboard, or separate polling service is needed.
 curated to avoid initiating the boiler's **SERVICE mode**.
 Setup, polling, saving options, reload, recovery, and unload do not write
 settings. The production integration uses only the
-library's public methods; no protocol or setter implementation is duplicated.
+library's transport methods and reviewed validation policy; no protocol or setter implementation is duplicated.
 It cannot detect or clear a boiler-wide SERVICE condition entered by another
 client, and never attempts to restore an assumed operating mode.
 
-This is not a `climate` entity or thermostat algorithm. Other USER values and
-unreviewed installer settings are not automatically exposed as controls.
-Per-circuit climate entities are a proposed extension, not yet implemented;
-see the [climate feature plan](climate-development-plan.md) for the mapping,
-pending decisions, and validation gates.
+Climate controls are an interface to the controller's existing regulation, not
+a Home Assistant thermostat algorithm. Other USER values and unreviewed
+installer settings are not automatically exposed as controls. See the
+[climate feature plan](climate-development-plan.md) for design and validation
+boundaries. The adapter is now version **0.3.0**; the unchanged SDK remains 0.1.0.
 
 ## Installation status
 
@@ -154,6 +155,7 @@ The device page separates three different kinds of information:
 | HA section | Contents |
 |---|---|
 | **Sensors** | Reviewed operational readings, with descriptive names and verified native units |
+| **Controls** | Circuit climate entities, after the corresponding mode-write opt-in |
 | **Configuration** | Writable numbers/selects, only after explicit per-setting write opt-in |
 | **Diagnostics** | Firmware version, setting readbacks, optional unclassified raw channels, and PCB readings |
 
@@ -172,6 +174,66 @@ this is not authoritative discovery of installed sensors. A manually enabled
 reading remains the controller's report, even when the circuit is unused.
 No missing channel is manufactured, and disappearing/failed readings become
 unavailable rather than retaining an apparently current value.
+
+### Circuit climate controls
+
+Version 0.3.0 adds **Circuit 1**, **Circuit 2**, and **Circuit A** climate entities
+only when the circuit is applicable and its mode setting (`A1z`, `A11z`, or
+`A61z`) is individually enabled in integration options. No new write permissions
+are granted on upgrade. Existing number/select IDs and automations are unchanged.
+
+| Controller mode | HA mode | Preset |
+|---|---|---|
+| Off | Off | None |
+| Automatic | Auto | None |
+| Permanent reduced | Heat | Permanent reduced (`permanent_reduced`) |
+| Permanent comfort | Heat | Permanent comfort (`permanent_comfort`) |
+| One-time comfort | Heat | One-time comfort (`once_comfort`) |
+| One-time reduced | Heat | One-time reduced (`once_reduced`) |
+
+- Selecting Heat from Off/Auto selects permanent comfort. While already in Heat,
+  it preserves the exact preset. Named presets directly select their mode, even
+  from Off. Re-selecting the same mode does not rearm a one-time override.
+- Selecting Auto cancels an override. Clearing a preset (None) returns an override
+  to Auto but leaves Off/Auto unchanged. Turn on means Automatic; Turn off means
+  circuit Off, not boiler shutdown or a guarantee against frost-protection flow.
+- **The dial changes a persistent setting**, not a temporary setpoint. Comfort
+  presets edit `4`/`7`/`HP4`; reduced presets edit `5`/`8`/`HP5`. The particular
+  setting must also be individually opted in and have valid current metadata.
+  Off/Auto and non-writable targets have no supported temperature action.
+- One-time expiry is observed from the controller; HA has no reset timer and
+  never restores earlier targets. The expiry depends on comfort-program phase,
+  not a fixed duration or necessarily the immediately upcoming boundary.
+- Temperature actions may include an already-matching HVAC mode. A request
+  requiring both a mode change and a temperature change is rejected before any
+  write; issue separate intentional actions instead. HA unit conversion is
+  supported; only machine-roundoff near the live increment grid is corrected.
+
+Climate mode uses the exact `Hk1Status`/`Hk2Status`/`HkAStatus` runtime channel,
+not the slower mode-setting readback. A newly verified mode write takes precedence
+over polls started before its verification; the next fresh channel poll wins,
+including controller-owned expiry. A missing/invalid runtime mode, failed channel
+or parameter poll, changed mode contract, or absent circuit makes climate
+unavailable rather than guessing from a last-command setting. This mode binding
+is firmware-derived and offline-tested, not live-validated on every version.
+If runtime differs from the stored command and the requested mode is already
+stored, the SDK would skip an unchanged write. Climate refuses that ambiguous
+transition instead of pretending it occurred or forcing a replay. Inspect the
+controller and wait for coherent readbacks before retrying; an unchanged select
+operation likewise does not replace reported runtime mode.
+
+Current temperature comes only from the corresponding reported room channel;
+missing/sentinel readings leave it unknown without disabling valid mode controls.
+Flow temperatures are never substituted. Heat is a selected mode, not proof of
+heat delivery; no `hvac_action` is inferred. Room-report freshness limitations
+below still apply. Dynamic feature flags and metadata are tested against HA Core;
+visual dashboard behavior has not been manually validated.
+
+Commands share a lock with number/select/program operations and check a fresh
+runtime mode after identity verification. If a mode changes while a target waits,
+the action is refused, not rerouted to another setting. Expected-value checks and
+read-only preflight are not an atomic cross-parameter transaction: external changes
+can still race a write. No automatic replay or rollback is attempted.
 
 ### Room temperature readings
 
@@ -343,7 +405,9 @@ async/socket/timeout plugins, avoiding ambient test-helper version mismatches.
 Fixtures initialize real HA registries and a managed session with a test-only
 non-discovery resolver. SDK mocks and loopback HTTP devices provide synthetic
 data; non-loopback sockets are disabled. The loopback tests exercise
-HA → SDK → HTTP, including full program serialization, unchanged modes, lost
+HA → SDK → HTTP, including all circuit climate mappings, persistent targets,
+controller-owned expiry, stale-poll ordering, native-unit conversion, permission
+and metadata gating, queued/cancelled controls, full program serialization, unchanged modes, lost
 POST responses, strict authentication, and zero implicit global configuration
 changes. No real boiler is contacted by this suite.
 
@@ -353,10 +417,14 @@ Default SDK tests remain independent:
 HVCLIENT_LIVE=0 .venv/bin/python -B -m unittest discover -s tests -q
 ```
 
-Live SDK reads/previews have been smoke-tested separately; actual SDK writes,
-physical effects, and reboot persistence remain unverified. The integration
-has not been installed on a live HA/controller deployment. Opt-in controls are
-implemented and synthetically tested, **not production hardware validation**.
+Live SDK reads/previews have been smoke-tested separately. After manual
+installation, the user reported that the climate entities were tested and
+appeared to work correctly so far. This is an initial live smoke-check report,
+not a recorded per-command hardware validation procedure. The particular actions
+tested, controller-owned expiry, persistence of target edits after expiry,
+physical heating effects, and reboot persistence were not individually reported.
+Opt-in controls have offline coverage and this initial user report, **not
+comprehensive production hardware validation**.
 No hardware request, publication, push, or setting change is implied by installing
 the source or running these tests.
 
