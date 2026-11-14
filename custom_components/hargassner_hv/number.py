@@ -7,10 +7,9 @@ from homeassistant.components.number import NumberDeviceClass, NumberEntity, Num
 from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.exceptions import ServiceValidationError
 
-from hvclient import NUMERIC_USER_WRITES, NUMERIC_WRITES
-
 from .const import DOMAIN, NUMERIC_LABELS
 from .entity import HargassnerParameterEntity
+from .hvclient import NUMERIC_USER_WRITES, NUMERIC_WRITES
 
 PARALLEL_UPDATES = 1
 

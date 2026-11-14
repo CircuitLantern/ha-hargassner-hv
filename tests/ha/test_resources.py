@@ -7,23 +7,25 @@ from pathlib import Path
 from homeassistant.helpers import translation
 
 from custom_components.hargassner_hv.const import CONTROL_LABELS, DOMAIN, VERSION
-from hvclient import PARAMETER_WRITES
+from custom_components.hargassner_hv.hvclient import PARAMETER_WRITES
 
 
-def test_manifest_and_hacs_layout_use_an_external_sdk_requirement():
+def test_manifest_and_hacs_layout_use_the_bundled_sdk():
     root = Path(__file__).resolve().parents[2]
     integration = root / "custom_components" / DOMAIN
     manifest = json.loads((integration / "manifest.json").read_text())
     hacs = json.loads((root / "hacs.json").read_text())
     assert manifest["domain"] == DOMAIN
-    assert manifest["version"] == VERSION == "0.3.0"
-    assert manifest["requirements"] == ["hargassner-hvclient==0.1.0"]
+    assert manifest["version"] == VERSION == "0.4.0"
+    assert manifest["requirements"] == []
     assert manifest["config_flow"] is True
     assert manifest["iot_class"] == "local_polling"
-    assert manifest["documentation"].startswith("https://")
-    assert manifest["issue_tracker"].startswith("https://")
+    assert manifest["documentation"] == "https://github.com/CircuitLantern/ha-hargassner-hv"
+    assert manifest["issue_tracker"] == manifest["documentation"] + "/issues"
+    assert manifest["codeowners"] == ["@CircuitLantern"]
     assert hacs["homeassistant"] == "2026.11.1"
-    assert not (integration / "hvclient").exists()
+    assert (integration / "hvclient/client.py").is_file()
+    assert not (root / "src/hvclient").exists()
     assert set(CONTROL_LABELS) == set(PARAMETER_WRITES)
 
 

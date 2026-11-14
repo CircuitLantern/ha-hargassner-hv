@@ -4,7 +4,7 @@
 import hashlib
 import re
 
-from hvclient import SystemInfo
+from .hvclient import SystemInfo
 
 
 class IdentityError(ValueError):

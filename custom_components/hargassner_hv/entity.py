@@ -4,10 +4,9 @@
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from hvclient import CIRCUIT_MODE_WRITES, Parameter
-
 from .const import DOMAIN, NAME
 from .coordinator import HargassnerConfigEntry, HargassnerCoordinator, mode_zone
+from .hvclient import CIRCUIT_MODE_WRITES, Parameter
 
 
 class HargassnerEntity(CoordinatorEntity[HargassnerCoordinator]):

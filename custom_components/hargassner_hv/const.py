@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Integration constants and presentation labels, not protocol implementations."""
 
-from hvclient import CIRCUIT_MODE_PARAMETERS, CIRCUIT_SCHEDULE_PARAMETERS
+from .hvclient import CIRCUIT_MODE_PARAMETERS, CIRCUIT_SCHEDULE_PARAMETERS
 
 DOMAIN = "hargassner_hv"
 NAME = "Hargassner Smart HV"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 CONF_ENABLED_WRITES = "enabled_writes"
 CONF_ACK_WRITES = "acknowledge_writes"
 CONF_RAW_CHANNELS = "raw_channels"

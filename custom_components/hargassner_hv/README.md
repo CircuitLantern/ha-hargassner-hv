@@ -2,8 +2,9 @@
 
 # Hargassner Smart HV
 
-Custom Home Assistant integration using the separately installed `hvclient`
-library. Configuration and normal polling only read. Climate/number/select controls
+Custom Home Assistant integration with its `hvclient` SDK sources bundled in
+this folder. No separate SDK installation is required. Configuration and normal
+polling only read. Climate/number/select controls
 and the dedicated program action require explicit per-setting write opt-in.
 The supported calls were curated to avoid initiating the boiler's SERVICE mode.
 
@@ -19,9 +20,10 @@ custom names, and explicit user enable/disable choices.
 
 The repository's `docs/home-assistant.md` describes installation, entity
 mapping, program actions, limitations, and the development test environment.
-The pinned library must be published before normal dependency installation
-works; the reserved manifest URLs and empty codeowner list are release
-placeholders, not public project information.
+Install the complete component, including `hvclient/`, then restart Core after
+updates. The public project is https://github.com/CircuitLantern/ha-hargassner-hv.
+Marketplace catalog inclusion and a public release remain pending validation
+and submission; this checkout does not imply the project is already listed.
 
 ## Licence
 

@@ -13,8 +13,13 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from custom_components.hargassner_hv.climate import PRESETS, TARGETS, HargassnerClimate
 from custom_components.hargassner_hv.const import DOMAIN
-from hvclient import Choice, TransportError, WriteOutcomeUnknownError, WriteResult
-from hvclient.models import channels_from_json
+from custom_components.hargassner_hv.hvclient import (
+    Choice,
+    TransportError,
+    WriteOutcomeUnknownError,
+    WriteResult,
+)
+from custom_components.hargassner_hv.hvclient.models import channels_from_json
 
 MODE_NAMES = {"1": "A1z", "2": "A11z", "A": "A61z"}
 

@@ -9,14 +9,13 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import service
 
-from hvclient import (
+from .const import DOMAIN
+from .hvclient import (
     CIRCUIT_SCHEDULE_PARAMETERS,
     DailySchedule,
     ValidationError,
     WeeklySchedule,
 )
-
-from .const import DOMAIN
 
 SCHEMA = vol.Schema({
     vol.Required("device_id"): cv.string,

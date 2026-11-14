@@ -13,9 +13,14 @@ from custom_components.hargassner_hv.const import (
     CONF_RAW_CHANNELS,
     DOMAIN,
 )
+from custom_components.hargassner_hv.hvclient import (
+    AuthenticationError,
+    CooldownError,
+    ProtocolError,
+    TransportError,
+)
+from custom_components.hargassner_hv.hvclient.models import system_info_from_json
 from custom_components.hargassner_hv.identity import IdentityError, identities, identity
-from hvclient import AuthenticationError, CooldownError, ProtocolError, TransportError
-from hvclient.models import system_info_from_json
 
 
 @pytest.mark.parametrize("error,key", [

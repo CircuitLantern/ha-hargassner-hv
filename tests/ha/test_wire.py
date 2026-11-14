@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""HA -> independently installed SDK -> synthetic loopback HTTP device."""
+"""HA -> bundled SDK -> synthetic loopback HTTP device."""
 
 import copy
 from unittest.mock import patch
@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.hargassner_hv.const import DOMAIN
-from hvclient import AsyncHargassnerClient
+from custom_components.hargassner_hv.hvclient import AsyncHargassnerClient
 from tests.library_support import Device, schedule_catalog
 
 

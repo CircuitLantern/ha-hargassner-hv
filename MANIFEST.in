@@ -5,4 +5,4 @@ include tests/__init__.py tests/library_support.py tests/live_support.py
 include tests/test_library_*.py
 exclude tests/test_set_parameter.py
 prune tests/ha
-prune custom_components
+recursive-include custom_components/hargassner_hv/hvclient *.py py.typed

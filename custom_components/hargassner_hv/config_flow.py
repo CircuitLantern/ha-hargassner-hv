@@ -15,14 +15,6 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from hvclient import (
-    AsyncHargassnerClient,
-    AuthenticationError,
-    CooldownError,
-    HargassnerError,
-    ProtocolError,
-)
-
 from .const import (
     CONF_ACK_WRITES,
     CONF_ENABLED_WRITES,
@@ -32,6 +24,13 @@ from .const import (
     CONTROL_LABELS,
     DOMAIN,
     NAME,
+)
+from .hvclient import (
+    AsyncHargassnerClient,
+    AuthenticationError,
+    CooldownError,
+    HargassnerError,
+    ProtocolError,
 )
 from .identity import IdentityError, identities, identity
 

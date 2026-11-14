@@ -5,10 +5,9 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import ServiceValidationError
 
-from hvclient import CIRCUIT_MODE_PARAMETERS, Choice, HeatingCircuitMode
-
 from .const import DOMAIN
 from .entity import HargassnerParameterEntity
+from .hvclient import CIRCUIT_MODE_PARAMETERS, Choice, HeatingCircuitMode
 
 PARALLEL_UPDATES = 1
 MODES = {mode.name.lower(): mode for mode in HeatingCircuitMode}

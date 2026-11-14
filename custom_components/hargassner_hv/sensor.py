@@ -8,15 +8,14 @@ from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 
-from hvclient import (
+from .const import CONTROL_LABELS, DOMAIN
+from .entity import HargassnerEntity, HargassnerParameterEntity
+from .hvclient import (
     CIRCUIT_SCHEDULE_WRITES,
     NUMERIC_USER_WRITES,
     Choice,
     HeatingCircuitMode,
 )
-
-from .const import CONTROL_LABELS, DOMAIN
-from .entity import HargassnerEntity, HargassnerParameterEntity
 from .telemetry import OPERATIONAL_CHANNELS, OperationalChannel
 
 PARALLEL_UPDATES = 0

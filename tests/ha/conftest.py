@@ -27,14 +27,18 @@ from custom_components.hargassner_hv.const import (
     CONF_IDENTITY_SOURCE,
     DOMAIN,
 )
-from custom_components.hargassner_hv.identity import identity
-from hvclient import PARAMETER_WRITES, AsyncHargassnerClient, WriteResult
-from hvclient.models import (
+from custom_components.hargassner_hv.hvclient import (
+    PARAMETER_WRITES,
+    AsyncHargassnerClient,
+    WriteResult,
+)
+from custom_components.hargassner_hv.hvclient.models import (
     channels_from_json,
     parameter_from_json,
     pcb_info_from_json,
     system_info_from_json,
 )
+from custom_components.hargassner_hv.identity import identity
 from tests.library_support import schedule_catalog, user_catalog
 
 

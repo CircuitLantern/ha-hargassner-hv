@@ -9,10 +9,7 @@ import hashlib
 import json
 import re
 import shutil
-import subprocess
-import sys
 import tempfile
-import tomllib
 import zipfile
 from pathlib import Path
 
@@ -24,7 +21,7 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def installation_notes(version: str, wheel_name: str, wheel_hash: str) -> str:
+def installation_notes(version: str) -> str:
     return f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Private Home Assistant development bundle {version}
@@ -35,7 +32,7 @@ This is a local development build, not a public release or hardware validation.
 1. Extract the ZIP (or use this unpacked bundle directory).
 2. Copy ONLY custom_components/hargassner_hv into the configuration directory
    containing configuration.yaml. Replace the previous integration code with
-   this copy, including its wheels directory. Do not replace the entire
+   this copy, including its hvclient directory. Do not replace the entire
    custom_components directory or unrelated files.
 3. Restart Home Assistant Core, not just an editor/SSH add-on or YAML reload.
 4. For first installation, add Hargassner Smart HV in Settings > Devices &
@@ -44,23 +41,16 @@ This is a local development build, not a public release or hardware validation.
 
 Expected paths INSIDE Home Assistant Core:
 /config/custom_components/hargassner_hv/manifest.json
-/config/custom_components/hargassner_hv/wheels/{wheel_name}
+/config/custom_components/hargassner_hv/hvclient/client.py
 
-The staged manifest uses:
-hargassner-hvclient @ file:///config/custom_components/hargassner_hv/wheels/{wheel_name}
-
-Keep the wheel at that path. HA installs it in Core's Python environment;
-installing it only in an SSH/editor add-on does not install it into Core.
-The repository manifest is unchanged and the SDK remains a separate package.
+The SDK sources are bundled in the component. No SDK wheel, PyPI publication,
+separate SDK installation, or custom package installer is required.
+The repository manifest is copied unchanged. Home Assistant supplies aiohttp
+and yarl in the supported Core environment.
 SHA256SUMS covers all payload files except itself; the ZIP checksum is beside
-the ZIP. Wheel SHA-256: {wheel_hash}
-
-IMPORTANT FOR SDK DEVELOPMENT: a new wheel with the same SDK version may not
-replace an already-installed SDK in HA. Increment the SDK version and update
-the source manifest's pinned requirement when testing changed SDK runtime code,
-or explicitly reinstall the wheel in Core's Python environment. Restarting or
-replacing files alone does not guarantee a same-version SDK reinstall.
-Integration-only edits do not require changing the SDK version.
+the ZIP. Replacing the complete component and restarting Core updates the
+bundled SDK together with the integration. An old globally installed hvclient
+package is not used and is not uninstalled automatically.
 
 Older dist bundles are not removed automatically. Install this versioned bundle,
 not stale top-level dist/custom_components or dist/wheels from earlier builds.
@@ -76,13 +66,17 @@ See LICENSE and LICENSING.md for the standard terms and third-party exclusions.
 def prepare(root: Path, *, replace: bool = False) -> Path:
     component = root / "custom_components" / "hargassner_hv"
     manifest = json.loads((component / "manifest.json").read_text())
-    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     version = manifest["version"]
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*(?:[a-zA-Z0-9.-]*)", version):
         raise ValueError("Integration version is not safe for a bundle filename")
-    requirement = f"{project['name']}=={project['version']}"
-    if requirement not in manifest["requirements"]:
-        raise ValueError("Source manifest must pin the current SDK project version")
+    if any("hargassner-hvclient" in item or "file:" in item
+           for item in manifest.get("requirements", [])):
+        raise ValueError("Source manifest must not install an external SDK or local wheel")
+    if not (component / "hvclient/client.py").is_file():
+        raise ValueError("Component must contain the SDK sources")
+    for path in component.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("Refusing symlink input inside the component")
     dist = root / "dist"
     dist.mkdir(exist_ok=True)
     name = f"hargassner_hv-haos-{version}"
@@ -100,32 +94,12 @@ def prepare(root: Path, *, replace: bool = False) -> Path:
 
     with tempfile.TemporaryDirectory(prefix=".ha-bundle-", dir=dist) as temporary:
         stage = Path(temporary)
-        wheels = stage / "built-wheels"
-        subprocess.run(
-            [sys.executable, "-m", "build", "--wheel", "--no-isolation",
-             "--outdir", str(wheels), str(root)], check=True,
-        )
-        built = list(wheels.glob("*.whl"))
-        if len(built) != 1:
-            raise ValueError("Expected exactly one SDK wheel")
-        wheel = built[0]
-        with zipfile.ZipFile(wheel) as package:
-            if any(path.startswith(("custom_components/", "homeassistant/", "tests/"))
-                   for path in package.namelist()):
-                raise ValueError("SDK wheel unexpectedly contains HA or test code")
         bundle = stage / name
         staged_component = bundle / "custom_components" / "hargassner_hv"
         shutil.copytree(component, staged_component,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", "wheels"))
-        wheel_dir = staged_component / "wheels"
-        wheel_dir.mkdir()
-        shutil.copyfile(wheel, wheel_dir / wheel.name)
-        manifest["requirements"] = [
-            f"{project['name']} @ file:///config/custom_components/hargassner_hv/wheels/{wheel.name}"
-            if item == requirement else item for item in manifest["requirements"]
-        ]
-        (staged_component / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        (bundle / "INSTALL.md").write_text(installation_notes(version, wheel.name, digest(wheel)))
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", "wheels",
+                                                     "*.egg-info", ".pytest_cache", ".mypy_cache", ".ruff_cache"))
+        (bundle / "INSTALL.md").write_text(installation_notes(version))
         for filename in ("LICENSE", "LICENSING.md"):
             shutil.copyfile(root / filename, bundle / filename)
         (bundle / MARKER).write_text("prepare_ha_dist.py\n")
@@ -155,7 +129,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         archive = prepare(ROOT, replace=args.replace)
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, OSError) as error:
         parser.exit(1, f"Build failed: {error}\n")
     print(f"Prepared {archive.relative_to(ROOT)}")
     print(f"Unpacked assets: {archive.with_suffix('').relative_to(ROOT)}")

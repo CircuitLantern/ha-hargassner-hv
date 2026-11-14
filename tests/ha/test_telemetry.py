@@ -8,9 +8,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.hargassner_hv.const import CONF_RAW_CHANNELS, DOMAIN
+from custom_components.hargassner_hv.hvclient.models import channels_from_json
 from custom_components.hargassner_hv.sensor import OperationalChannelSensor
 from custom_components.hargassner_hv.telemetry import OPERATIONAL_CHANNELS
-from hvclient.models import channels_from_json
 
 
 def channel_id(hass, entry, name):

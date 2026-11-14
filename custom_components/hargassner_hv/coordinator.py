@@ -17,7 +17,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from hvclient import (
+from .const import CONF_IDENTITY_SOURCE, DOMAIN
+from .hvclient import (
     CIRCUIT_MODE_PARAMETERS,
     CIRCUIT_SCHEDULE_PARAMETERS,
     AsyncHargassnerClient,
@@ -29,8 +30,6 @@ from hvclient import (
     WriteMismatchError,
     WriteVerificationError,
 )
-
-from .const import CONF_IDENTITY_SOURCE, DOMAIN
 from .identity import IdentityError, identity
 
 _LOGGER = logging.getLogger(__name__)

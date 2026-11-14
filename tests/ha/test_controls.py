@@ -21,9 +21,7 @@ from custom_components.hargassner_hv.const import (
 from custom_components.hargassner_hv.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.hargassner_hv.number import HargassnerNumber
-from custom_components.hargassner_hv.sensor import RawChannelSensor
-from hvclient import (
+from custom_components.hargassner_hv.hvclient import (
     DailySchedule,
     ProtocolError,
     TimeRange,
@@ -34,7 +32,9 @@ from hvclient import (
     WritePreview,
     WriteResult,
 )
-from hvclient.models import system_info_from_json
+from custom_components.hargassner_hv.hvclient.models import system_info_from_json
+from custom_components.hargassner_hv.number import HargassnerNumber
+from custom_components.hargassner_hv.sensor import RawChannelSensor
 
 
 def entity(hass, entry, platform, name):

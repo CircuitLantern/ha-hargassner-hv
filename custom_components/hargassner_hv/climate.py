@@ -15,17 +15,16 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
 
-from hvclient import (
+from .const import DOMAIN
+from .entity import HargassnerEntity
+from .hvclient import (
     CIRCUIT_MODE_PARAMETERS,
     HeatingCircuitMode,
     Parameter,
     ValidationError,
     WritePolicy,
 )
-from hvclient.policy import validate_change, validate_mode_parameter
-
-from .const import DOMAIN
-from .entity import HargassnerEntity
+from .hvclient.policy import validate_change, validate_mode_parameter
 
 PARALLEL_UPDATES = 1
 PRESETS = MappingProxyType({

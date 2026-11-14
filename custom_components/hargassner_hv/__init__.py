@@ -11,8 +11,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
-from hvclient import AsyncHargassnerClient, WritePolicy, WritePolicyError
-
 from .const import (
     CONF_ACK_WRITES,
     CONF_ENABLED_WRITES,
@@ -27,6 +25,7 @@ from .coordinator import (
     ParameterCoordinator,
     RuntimeData,
 )
+from .hvclient import AsyncHargassnerClient, WritePolicy, WritePolicyError
 from .services import async_setup_services
 from .telemetry import OPERATIONAL_CHANNELS
 

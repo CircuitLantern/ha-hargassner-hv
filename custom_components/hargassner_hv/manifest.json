@@ -1,13 +1,14 @@
 {
   "domain": "hargassner_hv",
   "name": "Hargassner Smart HV",
-  "codeowners": [],
+  "categories": ["climate.thermostats_heating"],
+  "codeowners": ["@CircuitLantern"],
   "config_flow": true,
-  "documentation": "https://example.invalid/hargassner-hv",
+  "documentation": "https://github.com/CircuitLantern/ha-hargassner-hv",
   "integration_type": "device",
   "iot_class": "local_polling",
-  "issue_tracker": "https://example.invalid/hargassner-hv/issues",
-  "loggers": ["hvclient"],
-  "requirements": ["hargassner-hvclient==0.1.0"],
-  "version": "0.3.0"
+  "issue_tracker": "https://github.com/CircuitLantern/ha-hargassner-hv/issues",
+  "loggers": ["custom_components.hargassner_hv.hvclient"],
+  "requirements": [],
+  "version": "0.4.0"
 }
