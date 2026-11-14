@@ -40,8 +40,12 @@ guarantee of anonymity.
   GitHub repository metadata validation needs the actual public repository.
 - [ ] Review validator dependencies. Workflow wrappers are pinned to reviewed
   commits, but upstream HACS/hassfest Docker images remain upstream-managed.
-- [ ] Confirm current Marketplace requirements and that the chosen domain does
-  not collide with another catalog/core integration.
+- [ ] Confirm current Marketplace requirements before release/submission.
+- [x] Check the chosen domain against core and published custom integrations.
+  The user checked Home Assistant core, GitHub search, and the shared catalog
+  on 2026-11-14: no existing core component or relevant conflicting integration
+  was found. Retain `hargassner_hv`; this records no known conflict, not a domain
+  reservation or guarantee against unlisted integrations.
 - [ ] Complete final provenance and rights review. Supplied artwork has public
   redistribution permission but remains distinct from project Apache licensing.
 
