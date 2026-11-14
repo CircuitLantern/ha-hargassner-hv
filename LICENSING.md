@@ -89,8 +89,11 @@ not a legal determination of authorship, ownership, or enforceability.
 Do not disclose private information about maintainers, contributors, device
 owners, or their installations in project text, examples, fixtures, logs,
 diagnostics, package metadata, or distribution artifacts. This includes
-personal names or account handles, private contact details, geographic
+private personal names or account handles, private contact details, geographic
 location, home-directory paths, real network addresses, and device identifiers.
+The approved public project identity is CircuitLantern; its repository URLs,
+codeowner, and GitHub no-reply attribution are intentionally public. This does
+not authorize disclosure of the original maintainer's identity or installation.
 Use relative paths, synthetic fixtures, and reserved example addresses rather
 than copying local configuration, captures, or private development records.
 Preserve legally required third-party notices; do not invent personal
@@ -117,7 +120,7 @@ The project's licence does **not** relicense:
   ownership or authority to relicense its underlying design or trademarks.
 - Third-party dependencies or tools, including aiohttp, yarl, and the
   decompiler. They retain their own licences; dependency use does not
-   transfer their ownership or make them Apache-licensed project code.
+  transfer their ownership or make them Apache-licensed project code.
 - Private device identifiers, authentication material, or local captures.
   No right to publish those is implied; they are not distributed as fixtures.
 

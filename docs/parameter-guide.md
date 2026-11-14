@@ -11,9 +11,9 @@ values, or proof that a particular setting is safe to change over HTTP.
 
 | Source | Edition / scope | Use here |
 |---|---|---|
-| **SHB** — [Service manual](../manuals/shb-smart-hv-17-23-de.pdf) | Smart-HV 17–23; cover: **DE V03, 03/2021, 11060355**; 16 PDF pages | Customer parameters p. 3; installer parameters pp. 4–5; service parameters pp. 6–8; combination-boiler parameters p. 9 |
-| **EHB** — [Electrical manual](../manuals/ehb-smart-hv-17-23-de.pdf) | Smart-HV 17–23; cover: **DE V08, 12/2024, 11060297**; 12 PDF pages | Board/sensor names, physical heating-circuit and cylinder connections, CAN/Ethernet layout |
-| **API** — [Parameter sample](../captures/parameters.sample.jsonc) and [identity sample](../captures/info.sample.jsonc) | Unit reports **`smart_hv_3.4.0`**; parameter descriptions are mostly French, with some German | Exact wire `name`, current display label, type, choices, ranges, and activation metadata |
+| **SHB** — Service manual (local, not distributed) | Smart-HV 17–23; cover: **DE V03, 03/2021, 11060355**; 16 PDF pages | Customer parameters p. 3; installer parameters pp. 4–5; service parameters pp. 6–8; combination-boiler parameters p. 9 |
+| **EHB** — Electrical manual (local, not distributed) | Smart-HV 17–23; cover: **DE V08, 12/2024, 11060297**; 12 PDF pages | Board/sensor names, physical heating-circuit and cylinder connections, CAN/Ethernet layout |
+| **API** — Parameter and identity samples (private inputs, not distributed) | Unit reports **`smart_hv_3.4.0`**; parameter descriptions are mostly French, with some German | Exact wire `name`, current display label, type, choices, ranges, and activation metadata |
 | **CODE** — `smart_hv_2.7.4/data/app/bin/app.kuna/` | Analyzed 2.7.4 executable | Previously traced routing, parameter setters, classifications, and channel/parameter distinction; see [HTTP reference](boiler-http-api.md#52-parameters) |
 
 Manual PDFs and API captures are local reference inputs, not tracked in Git.

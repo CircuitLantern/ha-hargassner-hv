@@ -550,8 +550,8 @@ offline tests do not establish live write compatibility or physical effects.
 
 #### All USER parameters: code catalog and live sample
 
-The table contains **all 44 USER entries** in
-[`captures/parameters.sample.jsonc`](../captures/parameters.sample.jsonc),
+The table contains **all 44 USER entries** in the private parameter sample
+(a local analysis input, not distributed),
 including inactive ones. `displayName`, description, type, limits/increment,
 and active state are copied from that **3.4.0** sample (descriptions are in the
 unit's selected language). They are not assumed identical across firmware or

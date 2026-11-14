@@ -3,8 +3,8 @@
 # Home Assistant — Hargassner Smart HV
 
 The **`hargassner_hv`** custom integration connects Home Assistant directly to
-the boiler's LAN HTTP API through the independently packaged `hvclient` library.
-It targets **Home Assistant 2026.11.1**, with a HACS-compatible repository layout.
+the boiler's LAN HTTP API through its bundled `hvclient` library sources.
+It targets **Home Assistant 2026.11.1**, with a Marketplace-compatible layout.
 No cloud, MQTT bridge, custom dashboard, or separate polling service is needed.
 
 ## Capabilities
@@ -35,27 +35,27 @@ Climate controls are an interface to the controller's existing regulation, not
 a Home Assistant thermostat algorithm. Other USER values and unreviewed
 installer settings are not automatically exposed as controls. See the
 [climate feature plan](climate-development-plan.md) for design and validation
-boundaries. The adapter is now version **0.3.0**; the unchanged SDK remains 0.1.0.
+boundaries. The adapter is now version **0.4.0** for the bundled-SDK packaging
+conversion; the unchanged SDK remains 0.1.0. Climate entities were introduced
+in integration 0.3.0.
 
 ## Installation status
 
-The layout and local implementation are ready for development/testing, but a
-normal public HACS installation is **not release-ready yet**:
+The public project identity is **CircuitLantern/ha-hargassner-hv**. A public
+release, final validation, and Marketplace catalog acceptance are still pending;
+see the [publication checklist](publication.md). GitHub publication alone does
+not make an integration appear in the shared catalog.
 
-1. `hargassner-hvclient==0.1.0` must be published to the package index. It is
-   pinned in the integration manifest but is currently available only locally.
-2. Replace the reserved `example.invalid` documentation/issue URLs with approved
-   public project URLs and assign a public project owner/team in `codeowners`.
-   No account or repository identity is assumed by this checkout.
-3. Supply appropriately licensed brand assets required by the distribution
-   channel and run its release validators. No vendor logo is bundled.
-4. Validate installation on the intended HA deployment and complete controlled
-   hardware checks before enabling production control automations.
+When a public release is available, users can first add this repository as an
+Integration custom repository in Marketplace. After catalog acceptance it will
+be discoverable without adding a custom repository. HACS uses the same catalog.
 
-`hacs.json` specifies the minimum tested HA version. Only
-`custom_components/hargassner_hv/` is integration runtime code; the library
-remains a separately installed/versioned requirement. It is not vendored into
-that directory, and the library distributions exclude HA code and tests.
+`hacs.json` specifies the minimum tested HA version. Everything needed at runtime
+is in `custom_components/hargassner_hv/`, including its canonical `hvclient/`
+source tree. No SDK wheel, package-index release, or separate SDK installation
+is required. Home Assistant supplies compatible aiohttp and yarl versions.
+The standalone SDK distribution builds from the same sources, excluding the HA
+adapter and tests; it remains independently installable without HA dependencies.
 
 ### Local development installation
 
@@ -63,56 +63,34 @@ For manual installation in your own HA OS/container instance, prepare a private
 bundle from the current checkout (Python 3.11+):
 
 ```bash
-python -m pip install build 'setuptools>=77' wheel
 python tools/prepare_ha_dist.py
 ```
 
-The script builds the independent SDK wheel without build isolation, stages
-the integration with a local-wheel manifest, and generates:
+The standard-library-only script stages the component sources without changing
+the manifest or invoking a package installer, and generates:
 
 - `dist/hargassner_hv-haos-<integration-version>/` — unpacked installation assets
 - `dist/hargassner_hv-haos-<integration-version>.zip` — the same assets to extract
 - `dist/hargassner_hv-haos-<integration-version>.zip.sha256` — ZIP checksum
 
 Read the generated `INSTALL.md`. Copy the bundled `custom_components/hargassner_hv`
-directory, including `wheels/`, into HA's configuration directory and restart
-Core. The manifest references the wheel inside that component as seen under
-Core's `/config`. Only the staged manifest is changed. No deployment, publication,
-HA connection, or boiler request is performed by the script.
+directory, including `hvclient/`, into HA's configuration directory and restart
+Core. No deployment, publication, HA connection, or boiler request is performed
+by the script. Ordinary Marketplace installation uses the repository component,
+not this private bundle or a custom ZIP release configuration.
 
 For repeat builds of the same integration version, use
 `python tools/prepare_ha_dist.py --replace`. This replaces only that version's
 script-marked directory, ZIP, and checksum; unrelated/older `dist` assets remain.
 Do not install stale top-level `dist` folders from earlier manually built bundles.
 
-**SDK changes need special care:** HA may keep an already-installed package
-when its version is unchanged. Increment the SDK version and update the source
-manifest pin for changed SDK runtime code, or explicitly reinstall the wheel
-in Core's Python environment. Replacing a same-version wheel and restarting is
-not a guaranteed SDK update. Integration-only edits can use the existing SDK.
-
-For a local Core Python environment instead:
-
-In the **same Python environment that runs Home Assistant**, install the SDK
-from this checkout or its built wheel:
-
-```bash
-python -m pip install .
-```
-
-Copy `custom_components/hargassner_hv/` into the HA configuration directory's
-`custom_components/` directory, then restart HA. During Core/venv development,
-the documented HA library-development override can also be used:
-
-```bash
-hass --skip-pip-packages hargassner-hvclient -c '<config-directory>'
-```
-
-Installing on the host's Python does not install into a separate HA container
-or appliance environment. Until the SDK is published, this is a developer
-installation path, not a one-click HA OS/HACS installation promise. Do not
-remove the manifest requirement or copy SDK source into the integration as a
-workaround.
+**Upgrading from the former external-SDK installation:** back up Home Assistant,
+replace only this complete component folder, and restart Core. Keep the config
+entry and permissions; existing entity identifiers are unchanged. Relative SDK
+imports ignore any old globally installed `hvclient` package. The integration
+does not uninstall that package, and no SDK reinstall or pip override is needed.
+The bundled SDK is updated with the component, so future integration releases
+must account for SDK changes as well as adapter changes.
 
 In HA, choose **Settings → Devices & services → Add integration → Hargassner
 Smart HV**, then enter the bare host and HTTP port. No password is required.
@@ -396,7 +374,7 @@ dependencies and does not add HA to the SDK's runtime or normal test environment
 
 ```bash
 uv venv --python 3.14 .venv-ha
-uv pip install --python .venv-ha/bin/python -r tests/ha/requirements.txt -e .
+uv pip install --python .venv-ha/bin/python -r tests/ha/requirements.txt
 .venv-ha/bin/python -B tests/ha/run.py -q
 ```
 
@@ -404,8 +382,8 @@ The launcher loads HA before pytest's plugins and selects only the required
 async/socket/timeout plugins, avoiding ambient test-helper version mismatches.
 Fixtures initialize real HA registries and a managed session with a test-only
 non-discovery resolver. SDK mocks and loopback HTTP devices provide synthetic
-data; non-loopback sockets are disabled. The loopback tests exercise
-HA → SDK → HTTP, including all circuit climate mappings, persistent targets,
+data; non-loopback sockets are disabled. No standalone SDK is installed in this
+environment. The loopback tests exercise HA → bundled SDK → HTTP, including all circuit climate mappings, persistent targets,
 controller-owned expiry, stale-poll ordering, native-unit conversion, permission
 and metadata gating, queued/cancelled controls, full program serialization, unchanged modes, lost
 POST responses, strict authentication, and zero implicit global configuration

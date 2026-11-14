@@ -53,6 +53,12 @@ Dependencies are aiohttp and yarl. The package imports neither the research
 tools nor Home Assistant. It has no persistent storage, polling daemon, or
 background tasks; applications decide when to call it.
 
+The canonical SDK sources live in
+`custom_components/hargassner_hv/hvclient/`. Standalone packaging builds that
+same tree as `hvclient`; it does not package or import the HA adapter. The
+integration imports the SDK through its own relative namespace, so Marketplace
+installation needs no standalone SDK install or PyPI SDK publication.
+
 ## Quick start
 
 ```python

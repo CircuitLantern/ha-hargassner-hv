@@ -220,7 +220,7 @@ Do not claim atomicity the API cannot provide.
 Keep HA-only presentation code in `custom_components/hargassner_hv/`. Reuse
 `RuntimeData.async_control` for expected values, identity checks, cancellation,
 verified readback, and error translation. Protocol/validation fixes belong in
-`src/hvclient/` and require independent SDK tests/version handling if changed.
+`custom_components/hargassner_hv/hvclient/` and require independent SDK tests/version handling if changed.
 
 The climate entity subscribes to both coordinators without extra polling loops.
 Current intervals remain 300 seconds for parameters and 30 seconds for channels.

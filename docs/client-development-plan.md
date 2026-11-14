@@ -149,7 +149,7 @@ not automatically become enabled controls.
 | 3 — Thin CLI, if useful | Add one-shot library commands | No duplicated protocol logic; optional dependency only |
 | 4 — Read-only Home Assistant integration | Config flow, shared client, coordinators, sensors/diagnostics, unload handling | Stable setup/reload/recovery; no write or SERVICE request |
 | 5 — Guarded customer writes | Validate selected parameters; implement library write verification; add narrowly mapped entities | Operator-approved read-back/physical-effect tests; writes off by default |
-| 6 — Release and validation | Package library independently; pin integration dependency; run integration and soak tests | Install/upgrade/unload work; no session storms, task leaks, or unintended writes |
+| 6 — Release and validation | Package library independently from bundled sources; run integration and soak tests | Install/upgrade/unload work; no session storms, task leaks, or unintended writes |
 
 Do not require live coverage of every service/maintenance endpoint before the
 read-only integration can ship. Those endpoints are outside product scope.
@@ -471,11 +471,15 @@ retained as historical evidence, not copied into the library/integration.
 
 ## 7. Suggested layout and release boundary
 
-`src/hvclient/`, packaging, library tests, and the CLI entry point now exist.
+The SDK was initially implemented in `src/hvclient/`; publication preparation
+moves its single canonical source to `custom_components/hargassner_hv/hvclient/`.
+Standalone packaging, library tests, and the CLI entry point remain independent.
 The custom integration is implemented under `custom_components/hargassner_hv/`;
 the broader layout below remains a roadmap, not a directory specification.
 The independent library and integration can begin in one repository, but must
-retain separate import and release boundaries. They can be split later.
+retain separate import boundaries. Marketplace ships SDK sources with the
+adapter, so no independently published SDK dependency is needed. The historical
+roadmap below records the earlier architecture; it is not the install layout.
 
 ```text
 src/hvclient/
