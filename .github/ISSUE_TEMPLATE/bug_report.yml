@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug report
+description: Report integration behavior with privacy-safe reproduction details
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include names, addresses, hostnames/IPs, MACs, serial numbers,
+        credentials, cookies, raw API documents, identifying screenshots, or
+        unredacted logs. Use synthetic examples. Do not run hardware writes
+        solely to reproduce an issue.
+  - type: input
+    id: homeassistant
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true
+  - type: input
+    id: integration
+    attributes:
+      label: Integration version and installation method
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Reported firmware version
+      description: Do not include serial numbers or device identifiers.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Safe reproduction steps
+      description: >-
+        Include the entity type and opted-in setting names, and whether the
+        action was a read, preview, or intentional write. No private plant values.
+    validations:
+      required: true
+  - type: textarea
+    id: errors
+    attributes:
+      label: Sanitized error summary
+      description: Prefer exception type and phase over full captures.
