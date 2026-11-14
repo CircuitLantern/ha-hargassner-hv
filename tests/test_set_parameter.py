@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Offline wire-contract and policy tests; never connect to a real boiler."""
 

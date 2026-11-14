@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Reviewed heating-curve names and circuit/profile relationships, not general installer access."""
 

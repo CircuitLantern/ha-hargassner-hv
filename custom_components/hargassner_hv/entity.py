@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Shared device information and state availability."""
 
 from homeassistant.helpers.device_registry import DeviceInfo

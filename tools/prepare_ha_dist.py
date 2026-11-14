@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Build a private, manual-install HA bundle without contacting an appliance."""
 
 from __future__ import annotations
@@ -25,7 +25,9 @@ def digest(path: Path) -> str:
 
 
 def installation_notes(version: str, wheel_name: str, wheel_hash: str) -> str:
-    return f"""# Private Home Assistant development bundle {version}
+    return f"""<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Private Home Assistant development bundle {version}
 
 Back up Home Assistant before installation. Target/tested Core: 2026.11.1.
 This is a local development build, not a public release or hardware validation.
@@ -65,6 +67,9 @@ not stale top-level dist/custom_components or dist/wheels from earlier builds.
 Building makes no HA or boiler requests and performs no deployment or writes.
 Supported calls were curated to avoid initiating the boiler's SERVICE mode.
 Hardware write effects and persistence remain unverified.
+
+Project-maintained code and documentation are licensed under Apache-2.0.
+See LICENSE and LICENSING.md for the standard terms and third-party exclusions.
 """
 
 
@@ -125,7 +130,7 @@ def prepare(root: Path, *, replace: bool = False) -> Path:
             shutil.copyfile(root / filename, bundle / filename)
         (bundle / MARKER).write_text("prepare_ha_dist.py\n")
         files = sorted(path for path in bundle.rglob("*") if path.is_file())
-        (bundle / "SHA256SUMS").write_text("".join(
+        (bundle / "SHA256SUMS").write_text("# SPDX-License-Identifier: Apache-2.0\n" + "".join(
             f"{digest(path)}  {path.relative_to(bundle).as_posix()}\n" for path in files
         ))
         staged_zip = stage / archive.name

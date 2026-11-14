@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Immutable parameter, telemetry, and information values; no unit/timezone guesses."""
 

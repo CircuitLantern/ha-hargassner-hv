@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Private bundle staging with a synthetic SDK wheel, never a live appliance."""
 
 import hashlib
@@ -58,12 +58,15 @@ def test_bundle_has_local_wheel_checksums_and_unchanged_source(bundle_source):
     ]
     assert source.read_bytes() == original
     for line in (bundle / "SHA256SUMS").read_text().splitlines():
+        if line.startswith("#"):
+            continue
         checksum, relative = line.split("  ", 1)
         assert checksum == hashlib.sha256((bundle / relative).read_bytes()).hexdigest()
     with zipfile.ZipFile(archive) as package:
         assert package.testzip() is None
         assert all("__pycache__" not in name and "old.whl" not in name for name in package.namelist())
         assert "INSTALL.md" in package.namelist()
+        assert package.read("INSTALL.md").decode().startswith("<!-- SPDX-License-Identifier: Apache-2.0 -->\n")
     assert archive.with_suffix(".zip.sha256").read_text().startswith(builder.digest(archive))
 
 

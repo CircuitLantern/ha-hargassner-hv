@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Integration constants and presentation labels, not protocol implementations."""
 
 from hvclient import CIRCUIT_MODE_PARAMETERS, CIRCUIT_SCHEDULE_PARAMETERS

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """A dedicated, device-targeted full-program action; no arbitrary write tunnel."""
 
 from dataclasses import asdict

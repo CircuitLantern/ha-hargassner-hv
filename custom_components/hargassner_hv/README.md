@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Hargassner Smart HV
 
@@ -25,9 +25,10 @@ placeholders, not public project information.
 
 ## Licence
 
-This Source Code Form is subject to the terms of the Mozilla Public
-License, v. 2.0. If a copy of the MPL was not distributed with this
-file, You can obtain one at https://mozilla.org/MPL/2.0/.
+Project-maintained code and documentation are licensed under the Apache License,
+Version 2.0 (`Apache-2.0`): https://www.apache.org/licenses/LICENSE-2.0.
+Software is provided on an "AS IS" basis, without warranties or conditions of
+any kind; the full licence governs permissions and limitations.
 
 The repository includes `LICENSE` and `LICENSING.md` for licence scope and
 development provenance. Vendor material and third-party dependencies retain

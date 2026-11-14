@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Synthetic parameter/telemetry fixtures and loopback server; no real device data."""
 

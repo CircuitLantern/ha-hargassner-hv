@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Stable, hashed device identity obtained from the API, never from a host."""
 
 import hashlib

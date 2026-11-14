@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Operational readings, diagnostic setting readbacks, and optional raw channels."""
 
 from dataclasses import asdict

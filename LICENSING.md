@@ -1,30 +1,44 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Licensing and development provenance
 
 ## Licence and scope
 
 The project-maintained source code, tests, tooling, configuration, and
-accompanying documentation are offered under the **Mozilla Public License
-2.0 (`MPL-2.0`)**. The standard licence text is in [`LICENSE`](LICENSE).
+accompanying documentation are offered under the **Apache License,
+Version 2.0 (`Apache-2.0`)**. The standard licence text is in [`LICENSE`](LICENSE).
 SPDX notices identify this licence in the project files. Both this notice
 and the licence text accompany the Python source and wheel distributions.
 
 The licensing declaration concerns rights contributors are entitled to
 license. It does not create copyright in material that is not protected,
-claim ownership of third-party material, or change the MPL's terms. This
+claim ownership of third-party material, or change the Apache License's terms. This
 document explains provenance and scope; it is not an additional licence,
-exception, or restriction. The standard MPL text governs.
+exception, or restriction. The standard Apache License text governs.
 
-In general, MPL requires distributed source files containing covered code,
-including modifications, to remain available under MPL. When distributing
-covered executable forms, recipients must be told how to obtain the covered
-source. Independent files containing no covered code may use other licences,
-including proprietary terms. Private modifications need not be published,
-and merely running a modified server does not trigger a network-source
-obligation. There is no requirement to submit changes to this project's
-maintainer. Preserve applicable notices and consult the licence for its full
-conditions, including its contributor patent provisions.
+Apache-2.0 is permissive, not copyleft. It permits use, modification, and
+redistribution in source or object form, including in proprietary larger works,
+subject to its conditions. Redistribution requires a copy of the licence,
+prominent notices in modified files, retention of applicable copyright, patent,
+trademark, and attribution notices, and preservation of applicable NOTICE
+attributions if the work includes a NOTICE file. Modifications and derivative
+works may carry different terms provided the original work's licence conditions
+are met. There is no obligation to publish source or submit changes upstream.
+The licence includes a contributor patent grant and patent-litigation
+termination provisions, but no general trademark permission. Consult the
+standard licence for its full conditions, warranty disclaimer, and liability
+limitations.
+
+SPDX comments appear at the start of project-maintained text files; executable
+scripts retain their required shebang first, followed immediately by SPDX.
+JSON cannot contain comments, so adjacent `.license` files declare its licence
+without adding unsupported keys to Home Assistant resources. The standard
+`LICENSE` text is retained verbatim rather than prefixed with a comment.
+
+This declaration applies to the current project-maintained files. It does not
+rewrite Git history, replace licences in earlier distributed artifacts, or
+relicense third-party works. Previously generated wheels/bundles must be rebuilt
+from the updated checkout to carry the current licence and metadata.
 
 ## Agent-generated development
 
@@ -62,11 +76,11 @@ agent-generated portions and any human-authored selection, arrangement,
 design material, or modifications is fact-specific. This project makes no
 blanket determination that all generated code is protected or public domain.
 
-An MPL declaration cannot create missing copyright. Consequently,
-copyright-based copyleft enforcement cannot be assumed for portions lacking
+An Apache-2.0 declaration cannot create missing copyright. Consequently,
+copyright-based licence enforcement cannot be assumed for portions lacking
 qualifying protection. Development records can help establish actual
 contributions; timestamps or deposits alone do not create copyright. If
-enforceable reciprocity is important, seek qualified software/IP legal advice
+licence enforceability is important, seek qualified software/IP legal advice
 for the applicable jurisdictions. This explanation is general information,
 not a legal determination of authorship, ownership, or enforceability.
 
@@ -98,16 +112,19 @@ The project's licence does **not** relicense:
   analysis inputs, excluded from version control and package distributions.
 - Vendor or other third-party excerpts, names, trademarks, or logos referred
   to in the analysis. Their applicable rights and notices remain separate.
+  This includes the supplied integration icons in
+  `custom_components/hargassner_hv/brand/`; bundling artwork does not establish
+  ownership or authority to relicense its underlying design or trademarks.
 - Third-party dependencies or tools, including aiohttp, yarl, and the
   decompiler. They retain their own licences; dependency use does not
-  transfer their ownership or make them MPL-covered project code.
+   transfer their ownership or make them Apache-licensed project code.
 - Private device identifiers, authentication material, or local captures.
   No right to publish those is implied; they are not distributed as fixtures.
 
 Documented protocol facts, identifiers, and checksums are not a claim of
 copyright in the underlying vendor material. Describing an interface or
 recording a checksum is not permission to redistribute firmware or manuals.
-The MPL's contributor patent grant does not grant rights to vendor-owned
+The Apache License's contributor patent grant does not grant rights to vendor-owned
 patents. This is an unofficial project, not vendor endorsement or legal
 clearance of reverse-engineering or redistribution activities.
 
@@ -115,9 +132,9 @@ Retain applicable third-party notices and verify compatibility before
 incorporating copied/adapted source. Do not remove existing notices or label
 someone else's code as solely owned by the maintainer. Contributors should
 identify third-party sources and describe material AI generation; this is
-project contribution guidance, not an extra restriction on MPL recipients.
+project contribution guidance, not an extra restriction on Apache-2.0 recipients.
 
 ## References
 
-- [Mozilla's standard MPL-2.0 text](https://www.mozilla.org/MPL/2.0/)
-- [Mozilla MPL FAQ, including file-level copyleft and notices](https://www.mozilla.org/en-US/MPL/2.0/FAQ/)
+- [Standard Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+- [Apache licensing guidance](https://www.apache.org/licenses/)

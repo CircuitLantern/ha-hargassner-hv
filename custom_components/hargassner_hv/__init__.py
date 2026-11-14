@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Hargassner Smart HV adapter; all boiler protocol operations belong to hvclient."""
 
 from contextlib import AsyncExitStack

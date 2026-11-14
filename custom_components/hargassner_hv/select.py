@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Explicitly opted-in circuit modes, never boiler-wide modes."""
 
 from homeassistant.components.select import SelectEntity

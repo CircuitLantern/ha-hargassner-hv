@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Per-circuit mode IDs, never boiler-wide operating modes or SERVICE requests."""
 

@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Home Assistant — Hargassner Smart HV
 
@@ -430,6 +430,6 @@ the source or running these tests.
 
 ## Licence
 
-MPL-2.0; see the repository's `LICENSE` and `LICENSING.md`. Third-party material
+Apache-2.0; see the repository's `LICENSE` and `LICENSING.md`. Third-party material
 and dependencies retain their own licences. This unofficial integration is
 not vendor endorsement or a safety certification.

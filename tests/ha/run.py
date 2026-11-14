@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Run real-HA tests with only the explicitly selected pytest plugins."""
 
 import os

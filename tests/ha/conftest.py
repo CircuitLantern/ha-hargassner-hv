@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic SDK responses; all HA tests disable non-loopback network access."""
 
 import copy

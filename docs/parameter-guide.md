@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Smart HV parameters — English interpretation and manual crosswalk
 

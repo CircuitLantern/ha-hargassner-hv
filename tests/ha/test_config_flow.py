@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Identity, connection failures, duplicate prevention, reconfigure and opt-in UI."""
 
 import json

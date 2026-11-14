@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Development plan — reusable Hargassner client and Home Assistant integration
 
@@ -597,11 +597,11 @@ Resolve these for the selected features, not for every vendor endpoint:
 
 Release gates:
 
-- [x] Standard MPL-2.0 licence, SPDX notices, package licence metadata, and
+- [x] Standard Apache-2.0 licence, SPDX notices, package licence metadata, and
       distributed agent-generation/scope/authorship notice added without
       personal attribution, contributor location, or other identifying details.
       This declaration is not a determination that every generated portion
-      is copyrightable or that copyleft is enforceable over it.
+      is copyrightable or that licence obligations are enforceable over it.
 - [ ] Applicable AI-provider terms and third-party provenance checked before
       distribution; qualified software/IP advice if enforceable
       reciprocity is a requirement. See [the provenance note](../LICENSING.md).

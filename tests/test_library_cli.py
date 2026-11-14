@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 import io
 import json
@@ -24,17 +24,17 @@ from tests.library_support import mode_catalog, schedule_catalog
 
 
 class CLIAndConfigurationTests(unittest.TestCase):
-    def test_distribution_declares_mpl_and_ships_provenance_notice(self):
+    def test_distribution_declares_apache_and_ships_provenance_notice(self):
         package = distribution("hargassner-hvclient")
         metadata = package.metadata
-        self.assertEqual(metadata["License-Expression"], "MPL-2.0")
+        self.assertEqual(metadata["License-Expression"], "Apache-2.0")
         self.assertEqual(set(metadata.get_all("License-File", [])), {"LICENSE", "LICENSING.md"})
         self.assertIn("## Licence", metadata.get_payload())
         self.assertIn("LICENSING.md", metadata.get_payload())
         notice = package.read_text("licenses/LICENSING.md")
         self.assertIsInstance(notice, str, "packaged provenance notice is missing")
         self.assertIn("## Agent-generated development", notice)
-        self.assertIn("copyleft enforcement", notice)
+        self.assertIn("Apache License", notice)
 
     def test_distributed_readme_leads_with_capabilities_not_project_instructions(self):
         readme = distribution("hargassner-hvclient").metadata.get_payload()
@@ -58,7 +58,7 @@ class CLIAndConfigurationTests(unittest.TestCase):
 
         for path in Path(hvclient.__file__).parent.glob("*.py"):
             with self.subTest(module=path.name):
-                self.assertTrue(path.read_text().startswith("# SPDX-License-Identifier: MPL-2.0\n"))
+                self.assertTrue(path.read_text().startswith("# SPDX-License-Identifier: Apache-2.0\n"))
 
     def test_packaged_licensing_text_avoids_personal_biography_and_home_paths(self):
         import re

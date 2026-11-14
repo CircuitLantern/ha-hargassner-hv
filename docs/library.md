@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Independent Hargassner client library
 
@@ -897,6 +897,6 @@ fail the final comparison; the test does not retry or restore settings.
 
 ## Licence
 
-**MPL-2.0.** The standard `LICENSE` and detailed `LICENSING.md` scope/provenance
+**Apache-2.0.** The standard `LICENSE` and detailed `LICENSING.md` scope/provenance
 notice are included in source and wheel distributions. In installed wheels,
 they are in the distribution's `.dist-info/licenses/` directory.

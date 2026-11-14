@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Circuit climate interfaces; regulation and one-time expiry stay controller-owned."""
 
 import math

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Reviewed operational channel meanings; unknown channels remain raw diagnostics.
 
 Units come from firmware channel/sensor definitions, not name heuristics.

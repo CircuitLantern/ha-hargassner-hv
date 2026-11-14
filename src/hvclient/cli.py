@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Thin one-shot testing CLI: all protocol/validation work belongs to the library."""
 

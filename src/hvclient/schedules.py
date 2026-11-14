@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Reviewed heating-circuit comfort programs; controller-local, minute-resolution times."""
 

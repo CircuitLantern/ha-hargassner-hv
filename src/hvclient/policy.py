@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Deny-by-default writes, never inferred from the firmware's catalog levels."""
 

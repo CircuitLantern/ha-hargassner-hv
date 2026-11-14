@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Read-only connection validation, identity-safe reconfiguration, and opt-in controls."""
 
 from typing import Any

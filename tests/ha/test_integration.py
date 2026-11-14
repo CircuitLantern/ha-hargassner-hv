@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Integration setup and actual HA entity/service behavior with synthetic data."""
 
 from unittest.mock import AsyncMock, patch

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -9,7 +9,7 @@ name = "hargassner-hvclient"
 version = "0.1.0"
 description = "Independent async client for Hargassner telemetry, USER parameters, heating curves and circuit modes"
 readme = "docs/library.md"
-license = "MPL-2.0"
+license = "Apache-2.0"
 license-files = ["LICENSE", "LICENSING.md"]
 requires-python = ">=3.11"
 dependencies = ["aiohttp>=3.12,<4", "yarl>=1.17,<2"]

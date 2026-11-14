@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 """Guarded async HTTP client. Authentication never requests SERVICE mode."""
 

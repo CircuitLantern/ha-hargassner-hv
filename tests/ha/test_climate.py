@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Real-HA climate commands, capability gating, expiry and observation ordering."""
 
 import asyncio
