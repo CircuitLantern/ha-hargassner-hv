@@ -34,20 +34,28 @@ does not provide a replacement thermostat algorithm or restore old targets.
 
 ## Installation
 
-**Publication preparation:** a public release and Marketplace catalog submission
-are still pending. This source tree does not imply the integration is already
-listed in Marketplace.
+### Marketplace / HACS
 
-Once the public repository and release are available, add
-`CircuitLantern/ha-hargassner-hv` as an **Integration** custom repository in
-Marketplace (HACS on older Home Assistant versions). Catalog acceptance is a
-separate review; it will make the integration discoverable without this step.
+1. Click the **Open in Home Assistant Marketplace** badge above to open this
+   repository in your Home Assistant instance. If it is not in the shared
+   catalog, the link offers to add it as a custom repository.
+   Alternatively, add `https://github.com/CircuitLantern/ha-hargassner-hv` as a
+   custom repository with category **Integration** in Marketplace/HACS.
+2. Download the integration and restart Home Assistant Core.
+3. Add **Hargassner Smart HV** under **Settings → Devices & services**. Enter
+   the bare LAN host and HTTP port. No password is required.
 
-For manual development installation, copy the complete
-`custom_components/hargassner_hv/` folder, including `hvclient/`, into your Home
-Assistant configuration's `custom_components/` directory. Restart Core after
-updates, then add **Hargassner Smart HV** under **Settings → Devices & services**.
-Enter the bare LAN host and HTTP port. No password is required.
+Shared-catalog listing is not required for custom-repository installation. The
+badge opens the repository; it does not indicate that catalog review has been
+completed. After catalog acceptance, you can also find the integration by
+searching Marketplace/HACS.
+
+### Manual installation
+
+Copy the complete `custom_components/hargassner_hv/` folder, including
+`hvclient/`, into your Home Assistant configuration's `custom_components/`
+directory. Restart Core, then add **Hargassner Smart HV** as described above.
+For updates, replace the complete component folder and restart Core again.
 
 See the [installation and control guide](docs/home-assistant.md) for details,
 upgrade instructions, permission opt-ins, and troubleshooting.
