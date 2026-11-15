@@ -2,7 +2,8 @@
 
 # Hargassner Smart HV for Home Assistant
 
-An unofficial, local-polling integration for Hargassner Smart HV wood-log boilers.
+An unofficial Home Assistant integration for Hargassner Smart HV wood-log boilers,
+using the controller's local HTTP API.
 Read operational telemetry and, with explicit per-setting permission, control
 heating-circuit modes, persistent room targets, and comfort programs.
 
@@ -48,6 +49,26 @@ Enter the bare LAN host and HTTP port. No password is required.
 
 See the [installation and control guide](docs/home-assistant.md) for details,
 upgrade instructions, permission opt-ins, and troubleshooting.
+
+### Enable selected write permissions
+
+The integration starts read-only. To opt in to individual controls:
+
+1. Open `http://homeassistant.local:8123/config/integrations/integration/hargassner_hv`
+   in your browser. Replace `http://homeassistant.local:8123` with the address
+   you normally use to open Home Assistant. You can also navigate through **Settings →
+   Devices & services → Hargassner Smart HV**.
+2. Click the **gear (Configure)** icon for your **Hargassner Smart HV** device.
+3. Under **Allow writes to these settings**, add only the settings you want
+   Home Assistant to control.
+4. Check **I understand the operational risk of enabling selected writes**
+   if enabling any writes. Select the optional diagnostic checkboxes as desired;
+   these enable additional diagnostics, not write permissions.
+5. Submit the form to save your choices.
+
+Enabling writes can affect heating operation. Permissions are per setting:
+allowing circuit-mode changes does not also allow persistent target edits or
+program changes. Leave settings you do not need unselected.
 
 ## Safety and compatibility
 
