@@ -2,6 +2,8 @@
 
 # Hargassner Smart HV for Home Assistant
 
+[![Open in Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=CircuitLantern&repository=ha-hargassner-hv&category=integration)
+
 An unofficial Home Assistant integration for Hargassner Smart HV wood-log boilers,
 using the controller's local HTTP API.
 Read operational telemetry and, with explicit per-setting permission, control
