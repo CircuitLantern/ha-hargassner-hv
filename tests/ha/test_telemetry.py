@@ -9,7 +9,11 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.hargassner_hv.const import CONF_RAW_CHANNELS, DOMAIN
 from custom_components.hargassner_hv.hvclient.models import channels_from_json
-from custom_components.hargassner_hv.sensor import OperationalChannelSensor
+from custom_components.hargassner_hv.sensor import (
+    BoilerStateSensor,
+    DoorContactSensor,
+    OperationalChannelSensor,
+)
 from custom_components.hargassner_hv.telemetry import OPERATIONAL_CHANNELS
 
 
@@ -179,6 +183,186 @@ def test_curated_units_are_exact_name_mappings_not_energy_or_power_inferences():
     assert all(description.state_class in (None, SensorStateClass.MEASUREMENT)
                for description in OPERATIONAL_CHANNELS.values())
     assert "Hk1Fr35RaumTempKorr" not in OPERATIONAL_CHANNELS  # Correction is not the measured temperature.
+
+
+@pytest.mark.parametrize("value,expected", [
+    (0, "open"), (1, "closed"), (0.0, "open"), (1.0, "closed"),
+    (2, None), (-1, None), (0.5, None), (None, None),
+])
+async def test_door_contact_maps_only_observed_values(hass, client, make_entry, value, expected):
+    client.async_get_channels.return_value = channels_from_json(
+        {} if value is None else {"tuerkontakt": value},
+    )
+    entry = await load(hass, make_entry, options={CONF_RAW_CHANNELS: True})
+    sensor = DoorContactSensor(entry)
+    assert sensor.available is (expected is not None)
+    assert sensor.native_value == expected
+    assert sensor.device_class == "enum"
+    assert sensor.options == ["open", "closed"]
+    assert sensor.native_unit_of_measurement is None
+    assert sensor.state_class is None
+    assert sensor.extra_state_attributes == {"channel": "tuerkontakt", "raw_value": value}
+    row_id = channel_id(hass, entry, "tuerkontakt")
+    if value is not None:
+        row = er.async_get(hass).async_get(row_id)
+        assert row.entity_category is EntityCategory.DIAGNOSTIC
+        assert row.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        assert row.original_name == "Boiler door contact"
+    else:
+        assert row_id is None
+    client.async_set_parameter.assert_not_awaited()
+
+
+@pytest.mark.parametrize("disabled", [None, er.RegistryEntryDisabler.INTEGRATION, er.RegistryEntryDisabler.USER])
+async def test_door_contact_preserves_existing_diagnostic_identity(hass, client, make_entry, disabled):
+    client.async_get_channels.return_value = channels_from_json({"tuerkontakt": 0})
+    entry = make_entry(options={CONF_RAW_CHANNELS: True})
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create(
+        "sensor", DOMAIN, f"{entry.unique_id}_channel_tuerkontakt", config_entry=entry,
+        original_name="Raw tuerkontakt", entity_category=EntityCategory.DIAGNOSTIC, disabled_by=disabled,
+    )
+    registry.async_update_entity(old.entity_id, name="My door contact")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    row = registry.async_get(old.entity_id)
+    assert row.unique_id == old.unique_id
+    assert row.name == "My door contact"
+    assert row.original_name == "Boiler door contact"
+    assert row.disabled_by is disabled
+    assert row.entity_category is EntityCategory.DIAGNOSTIC
+    assert sum(item.unique_id == row.unique_id for item in
+               er.async_entries_for_config_entry(registry, entry.entry_id)) == 1
+    if disabled is None:
+        state = hass.states.get(old.entity_id)
+        assert state.state == "open"
+        assert state.attributes["device_class"] == "enum"
+        assert state.attributes["options"] == ["open", "closed"]
+        assert state.attributes["raw_value"] == 0
+        client.async_get_channels.return_value = channels_from_json({"tuerkontakt": 1})
+        await entry.runtime_data.channels.async_refresh()
+        assert hass.states.get(old.entity_id).state == "closed"
+        client.async_get_channels.return_value = channels_from_json({"tuerkontakt": 2})
+        await entry.runtime_data.channels.async_refresh()
+        assert hass.states.get(old.entity_id).state == "unavailable"
+        client.async_get_channels.return_value = channels_from_json({})
+        await entry.runtime_data.channels.async_refresh()
+        assert hass.states.get(old.entity_id).state == "unavailable"
+        client.async_get_channels.return_value = channels_from_json({"tuerkontakt": 0})
+        await entry.runtime_data.channels.async_refresh()
+        assert hass.states.get(old.entity_id).state == "open"
+        entry.runtime_data.channels.async_set_update_error(UpdateFailed("Synthetic poll failure"))
+        assert hass.states.get(old.entity_id).state == "unavailable"
+    else:
+        assert hass.states.get(old.entity_id) is None
+    assert not entry.runtime_data.enabled_writes
+    client.async_set_parameter.assert_not_awaited()
+
+
+async def test_door_contact_remains_optional_diagnostic(hass, client, make_entry):
+    client.async_get_channels.return_value = channels_from_json({"tuerkontakt": 1})
+    entry = await load(hass, make_entry)
+    assert channel_id(hass, entry, "tuerkontakt") is None
+    assert "tuerkontakt" not in OPERATIONAL_CHANNELS
+
+
+@pytest.mark.parametrize("value,expected", [
+    (0, "off / ready"), (1, "ignition preparation"), (2, "ignition monitoring"),
+    (3, "ignition pause"), (4, "transition to power burning"), (5, "startup / heating up"),
+    (6, "power burning"), (7, "ember maintenance"), (8, "burnout"), (9, "de-ashing"),
+    (10, "residual heat"), (11, "manual"), (12, "overtemperature"),
+    (13, "ember-maintenance lockout"), (6.0, "power burning"),
+    (14, None), (253, None), (-1, None), (6.5, None), (None, None),
+])
+async def test_boiler_state_maps_only_defined_codes(hass, client, make_entry, value, expected):
+    client.async_get_channels.return_value = channels_from_json(
+        {} if value is None else {"KesselZustand": value},
+    )
+    entry = await load(hass, make_entry, options={CONF_RAW_CHANNELS: True})
+    sensor = BoilerStateSensor(entry)
+    assert sensor.available is (expected is not None)
+    assert sensor.native_value == expected
+    assert sensor.device_class == "enum"
+    assert len(sensor.options) == len(set(sensor.options)) == 14
+    if expected is not None:
+        assert expected in sensor.options
+    assert sensor.native_unit_of_measurement is None
+    assert sensor.state_class is None
+    assert sensor.extra_state_attributes == {"channel": "KesselZustand", "raw_value": value}
+    row_id = channel_id(hass, entry, "KesselZustand")
+    if value is not None:
+        row = er.async_get(hass).async_get(row_id)
+        assert row.entity_category is EntityCategory.DIAGNOSTIC
+        assert row.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        assert row.original_name == "Boiler state"
+    else:
+        assert row_id is None
+    client.async_set_parameter.assert_not_awaited()
+
+
+@pytest.mark.parametrize("disabled", [None, er.RegistryEntryDisabler.INTEGRATION, er.RegistryEntryDisabler.USER])
+async def test_boiler_state_preserves_existing_diagnostic_identity(hass, client, make_entry, disabled):
+    client.async_get_channels.return_value = channels_from_json({"KesselZustand": 0})
+    entry = make_entry(options={CONF_RAW_CHANNELS: True})
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create(
+        "sensor", DOMAIN, f"{entry.unique_id}_channel_KesselZustand", config_entry=entry,
+        original_name="Raw KesselZustand", entity_category=EntityCategory.DIAGNOSTIC, disabled_by=disabled,
+    )
+    registry.async_update_entity(old.entity_id, name="My boiler state")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    row = registry.async_get(old.entity_id)
+    assert row.unique_id == old.unique_id
+    assert row.name == "My boiler state"
+    assert row.original_name == "Boiler state"
+    assert row.disabled_by is disabled
+    assert row.entity_category is EntityCategory.DIAGNOSTIC
+    assert sum(item.unique_id == row.unique_id for item in
+               er.async_entries_for_config_entry(registry, entry.entry_id)) == 1
+    if disabled is None:
+        for value, expected in [
+            (0, "off / ready"), (2, "ignition monitoring"), (5, "startup / heating up"),
+            (6, "power burning"), (8, "burnout"), (10, "residual heat"),
+            (12, "overtemperature"), (14, "unavailable"), (6.5, "unavailable"),
+            (None, "unavailable"), (0, "off / ready"),
+        ]:
+            client.async_get_channels.return_value = channels_from_json(
+                {} if value is None else {"KesselZustand": value},
+            )
+            await entry.runtime_data.channels.async_refresh()
+            state = hass.states.get(old.entity_id)
+            assert state.state == expected
+            assert state.attributes["device_class"] == "enum"
+            if expected != "unavailable":
+                assert expected in state.attributes["options"]
+                assert state.attributes["raw_value"] == value
+                assert state.attributes["channel"] == "KesselZustand"
+        entry.runtime_data.channels.async_set_update_error(UpdateFailed("Synthetic poll failure"))
+        assert hass.states.get(old.entity_id).state == "unavailable"
+    else:
+        assert hass.states.get(old.entity_id) is None
+    assert not entry.runtime_data.enabled_writes
+    client.async_set_parameter.assert_not_awaited()
+
+
+async def test_boiler_state_remains_optional_and_is_discovered_later(hass, client, make_entry):
+    client.async_get_channels.return_value = channels_from_json({"KesselZustand": 6})
+    entry = await load(hass, make_entry)
+    assert channel_id(hass, entry, "KesselZustand") is None
+    assert "KesselZustand" not in OPERATIONAL_CHANNELS
+    await hass.config_entries.async_unload(entry.entry_id)
+    hass.config_entries.async_update_entry(entry, options={CONF_RAW_CHANNELS: True})
+    client.async_get_channels.return_value = channels_from_json({})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert channel_id(hass, entry, "KesselZustand") is None
+    client.async_get_channels.return_value = channels_from_json({"KesselZustand": 6})
+    await entry.runtime_data.channels.async_refresh()
+    await hass.async_block_till_done()
+    row = er.async_get(hass).async_get(channel_id(hass, entry, "KesselZustand"))
+    assert row.original_name == "Boiler state"
+    assert row.disabled_by is er.RegistryEntryDisabler.INTEGRATION
 
 
 async def test_old_room_default_stays_disabled_when_current_reading_is_sentinel(hass, client, make_entry):

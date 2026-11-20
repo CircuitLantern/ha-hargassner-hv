@@ -20,6 +20,25 @@ from .telemetry import OPERATIONAL_CHANNELS, OperationalChannel
 
 PARALLEL_UPDATES = 0
 
+# KesselState::operator QString in firmware 2.7.4; see docs/channel-guide.md.
+# Shared enum membership does not imply every state is used by Smart HV.
+BOILER_STATES = {
+    0: "off / ready",
+    1: "ignition preparation",
+    2: "ignition monitoring",
+    3: "ignition pause",
+    4: "transition to power burning",
+    5: "startup / heating up",
+    6: "power burning",
+    7: "ember maintenance",
+    8: "burnout",
+    9: "de-ashing",
+    10: "residual heat",
+    11: "manual",
+    12: "overtemperature",
+    13: "ember-maintenance lockout",
+}
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     runtime = entry.runtime_data
@@ -61,7 +80,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
                     entities.append(entity)
                 elif runtime.raw_channels:
                     known_channels.add(name)
-                    entities.append(RawChannelSensor(entry, name))
+                    if name == "tuerkontakt":
+                        entities.append(DoorContactSensor(entry))
+                    elif name == "KesselZustand":
+                        entities.append(BoilerStateSensor(entry))
+                    else:
+                        entities.append(RawChannelSensor(entry, name))
         if entities:
             async_add_entities(entities)
 
@@ -153,6 +177,57 @@ class RawChannelSensor(HargassnerEntity, SensorEntity):
     @property
     def native_value(self):
         return self.coordinator.data.get(self.channel) if self.coordinator.data is not None else None
+
+
+class DoorContactSensor(RawChannelSensor):
+    """Observed door-contact polarity; retain the existing diagnostic identity."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["open", "closed"]
+    _attr_icon = "mdi:door"
+
+    def __init__(self, entry):
+        super().__init__(entry, "tuerkontakt")
+        self._attr_name = "Boiler door contact"
+
+    @property
+    def available(self):
+        return super().available and super().native_value in (0, 1)
+
+    @property
+    def native_value(self):
+        if not self.available:
+            return None
+        # Live-device observation, not a documented HTTP API polarity contract.
+        return "open" if super().native_value == 0 else "closed"
+
+    @property
+    def extra_state_attributes(self):
+        return {"channel": self.channel, "raw_value": super().native_value}
+
+
+class BoilerStateSensor(RawChannelSensor):
+    """Firmware-defined combustion states; preserve the raw diagnostic identity."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(BOILER_STATES.values())
+    _attr_icon = "mdi:fire"
+
+    def __init__(self, entry):
+        super().__init__(entry, "KesselZustand")
+        self._attr_name = "Boiler state"
+
+    @property
+    def available(self):
+        return super().available and super().native_value in BOILER_STATES
+
+    @property
+    def native_value(self):
+        return BOILER_STATES.get(super().native_value) if self.available else None
+
+    @property
+    def extra_state_attributes(self):
+        return {"channel": self.channel, "raw_value": super().native_value}
 
 
 class OperationalChannelSensor(HargassnerEntity, SensorEntity):

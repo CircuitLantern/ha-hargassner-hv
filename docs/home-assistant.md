@@ -241,8 +241,22 @@ attributes. Their state `active`/`inactive` means firmware applicability,
 **not heating now**.
 
 The **Make additional diagnostic channels available (advanced)** option adds
-unclassified/internal channels only. These remain raw, disabled diagnostics
-with no guessed unit, device class, or statistics class. PCB diagnostics also
+internal channels as disabled diagnostics. Unclassified channels remain raw,
+with no guessed unit, device class, or statistics class. The **Boiler door
+contact** diagnostic displays `tuerkontakt` as `open` for `0` and `closed` for
+`1`, based on a user's live-device observation; other values are unavailable.
+It retains the former raw sensor's entity identity. See the
+[channel guide](channel-guide.md#door-contact-diagnostic) for provenance and the
+distinction between an open contact, an open door, and wiring faults.
+**Boiler state** similarly decodes `KesselZustand` to readable states such as
+`power burning`, `burnout`, and `residual heat`, using firmware 2.7.4's enum.
+It preserves the existing diagnostic sensor identity and exposes the numeric
+code as `raw_value`; unknown codes are unavailable. See the
+[boiler-state mapping](channel-guide.md#boiler-state-diagnostic) for all codes,
+evidence, and firmware limitations. Numeric-state automations must use the new
+text states or the `raw_value` attribute. Neither diagnostic changes write
+permissions or boiler operating modes. PCB
+diagnostics also
 remain optional/raw. Unknown names are not guessed to be temperatures, energy,
 booleans, or decoded operating states. The [channel guide](channel-guide.md)
 lists the curated keys and the evidence/limitations behind their interpretation.

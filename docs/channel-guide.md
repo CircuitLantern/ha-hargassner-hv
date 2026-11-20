@@ -67,6 +67,98 @@ not calibration, sentinel compatibility, physical sensor installation, or
 behavior on every deployed firmware. No new hardware requests were made
 for this review, and no captured readings or device identities are published.
 
+## Door-contact diagnostic
+
+The optional diagnostic channel `tuerkontakt` is displayed as **Boiler door
+contact**, an enum sensor with `open` and `closed` states:
+
+| Raw channel value | Home Assistant state |
+|---|---|
+| `0` | `open` |
+| `1` | `closed` |
+
+**Polarity evidence:** on 2026-11-20, the user reported observing `0` with the
+door open and `1` with it closed on a live Smart HV device. No independent source
+confirming this exact HTTP channel's numeric polarity was found in the reviewed
+manuals or public-source search. The mapping is based on that observation, not
+an established contract across all firmware or installations; the firmware
+version of this particular observation was not specified.
+
+The manufacturer's [Smart-HV 17–23 operating manual](https://www.hargassner.com/wp-content/uploads/2022/08/ba-smart-hv-17-23-de.pdf)
+(PDF page 25, digital-input test) describes green as contact closed and red as
+contact interrupted. For the door contact, red can mean an open door,
+disconnected plug, or broken cable. This corroborates the contact's purpose,
+**not** the numeric HTTP polarity. Consequently, `open` is a reported contact
+state, not proof that the physical door is open; `closed` is not a safety
+certification. This entity must not be used as a safety interlock.
+
+The sensor remains an optional diagnostic under the additional-diagnostic-channel
+option, disabled by default for new entities. Existing entity IDs, custom names,
+and enable/disable choices are retained. It has no unit or statistics class;
+`channel` and `raw_value` attributes expose the source reading. Missing channels,
+failed polls, or values other than exactly `0`/`1` are unavailable, not coerced
+to open or closed. The SDK still returns the raw numeric value. No additional
+endpoint, live request, or write permission is introduced.
+
+## Boiler-state diagnostic
+
+The optional **Boiler state** enum sensor decodes `KesselZustand` using the
+integer-to-name table in Smart HV firmware **2.7.4**:
+
+| Raw code | Firmware name | Home Assistant state |
+|---|---|---|
+| `0` | `AUS` | `off / ready` |
+| `1` | `ZUENDVORBEREITUNG` | `ignition preparation` |
+| `2` | `ZUENDUEBERWACHUNG` | `ignition monitoring` |
+| `3` | `ZUENDUNG_PAUSE` | `ignition pause` |
+| `4` | `UEBERGANG_LB` | `transition to power burning` |
+| `5` | `ANHEIZEN` | `startup / heating up` |
+| `6` | `LEISTUNGSBRAND` | `power burning` |
+| `7` | `GLUTERHALTUNG` | `ember maintenance` |
+| `8` | `AUSBRAND` | `burnout` |
+| `9` | `ENTASCHUNG` | `de-ashing` |
+| `10` | `RESTWAERME` | `residual heat` |
+| `11` | `HAND` | `manual` |
+| `12` | `UEBERTEMP` | `overtemperature` |
+| `13` | `GLUTERHALTUNGSSPERRE` | `ember-maintenance lockout` |
+
+The ordinary burn cycle is `0 → 2 → 5 → 6 → 8 → 10 → 0`; reloading, door
+opening, and other conditions can interrupt it. The shared enum also defines
+states that this Smart HV version may not normally use. `12` is explicitly
+handled as overtemperature by its combustion logic. Enum membership alone is
+not evidence that all fourteen states can occur on a particular installation.
+
+**Firmware evidence:** `HvKessel::refreshDaqChannels` (`0x4334c`) copies the
+boiler-state field at offset `0x50` directly into `KesselZustand` (the load is at
+`0x43420`). `HvKessel::getKesselState` (`0x47b74`) reads the same field, and
+`HvKessel::setKesselSSW` (`0x40474`) updates it with a `KesselState::Value`.
+`KesselState::operator QString` (`0x26d514`) supplies the table above; its branch
+table and label strings were checked against executable bytes, not just
+generated C. `HvKessel::AblaufWork` (`0x43cf0`) corroborates the common state
+transitions. No vendor binary, generated decompilation, or captures are bundled.
+
+The manufacturer's [Smart-HV 17–23 operating manual](https://www.hargassner.com/wp-content/uploads/2022/08/ba-smart-hv-17-23-de.pdf),
+section 6, PDF pages 20–21, explains the common states and their transitions,
+but does not specify numeric IDs. Its optional electric-ignition states are not
+assigned codes by assuming the manual's order matches the enum. The mapping is
+confirmed for **2.7.4**, not independently verified across later firmware.
+
+This is a combustion-state readout, **not** the `Wahlschalter` operating-mode
+selector or a heating-circuit `Hk*Zustand` decoder. In particular, `manual` is
+the name of enum code `11`, not a promise that manual operating mode reports
+that code; `off / ready` does not certify the whole heating system is off.
+
+The existing sensor identity, custom name, diagnostic category, and enable/disable
+choices are preserved. New entities remain disabled by default and require the
+additional-diagnostic-channel option. `channel` and `raw_value` attributes retain
+the source name and numeric code while available (HA omits these attributes when
+the entity is unavailable); the SDK still returns the raw number. Missing
+channels, failed polls, and codes outside the exact defined integers (including
+fractional readings) are unavailable rather than mapped to off or another state.
+There is no unit or statistics class, no added polling endpoint, and no write.
+Automations previously comparing the sensor state to a number need to use the
+new text state or its `raw_value` attribute instead.
+
 ## Availability and migration
 
 The known room-unit −1 sentinel is treated as unavailable, conservatively
