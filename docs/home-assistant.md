@@ -255,8 +255,17 @@ code as `raw_value`; unknown codes are unavailable. See the
 [boiler-state mapping](channel-guide.md#boiler-state-diagnostic) for all codes,
 evidence, and firmware limitations. Numeric-state automations must use the new
 text states or the `raw_value` attribute. Neither diagnostic changes write
-permissions or boiler operating modes. PCB
-diagnostics also
+permissions or boiler operating modes.
+For circuits 1, 2, and A, **Heating circuit X operating mode** decodes
+`HkXStatus` (off, automatic, continuous modes, and one-time overrides), while
+**Heating circuit X regulation state** decodes `HkXZustand` (comfort/reduced
+regulation, frost protection, shutdown reasons, and heat disposal). See the
+[circuit diagnostic mappings](channel-guide.md#heating-circuit-operating-mode-and-regulation-state-diagnostics)
+for all codes and firmware evidence. These preserve existing diagnostic IDs
+and numeric `raw_value` attributes while available; unknown codes are unavailable.
+The climate entity continues using numeric runtime modes unchanged. Regulation
+state is not proof of pump operation or physical heat delivery.
+PCB diagnostics also
 remain optional/raw. Unknown names are not guessed to be temperatures, energy,
 booleans, or decoded operating states. The [channel guide](channel-guide.md)
 lists the curated keys and the evidence/limitations behind their interpretation.

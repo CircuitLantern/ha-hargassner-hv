@@ -159,6 +159,86 @@ There is no unit or statistics class, no added polling endpoint, and no write.
 Automations previously comparing the sensor state to a number need to use the
 new text state or its `raw_value` attribute instead.
 
+## Heating-circuit operating-mode and regulation-state diagnostics
+
+For circuits **1**, **2**, and **A**, the optional enum sensors use exact channel
+names `Hk1Status`/`Hk2Status`/`HkAStatus` and
+`Hk1Zustand`/`Hk2Zustand`/`HkAZustand`. They are named **Heating circuit X
+operating mode** and **Heating circuit X regulation state**, respectively.
+No other channel names are decoded by this map.
+
+### `HkXStatus`: current operating mode
+
+| Raw code | Firmware name | Home Assistant state |
+|---|---|---|
+| `0` | `AUS` | `off` |
+| `1` | `AUTO` | `automatic` |
+| `2` | `DAUER_ABSENKEN` | `continuous reduced-temperature operation` |
+| `3` | `DAUER_HEIZEN` | `continuous comfort heating` |
+| `4` | `1xHEIZEN` | `one-time comfort heating` |
+| `5` | `1xABSENKEN` | `one-time reduced-temperature operation` |
+
+This is the current runtime mode, not simply the stored mode-setting parameter.
+The controller owns one-time override expiry and return to Automatic, based on
+heating-program conditions rather than a fixed-duration HA timer. The existing
+climate entity already reads this same numeric runtime channel; the diagnostic
+presentation does not change its control or expiry handling.
+
+### `HkXZustand`: current regulation state
+
+| Raw code | Home Assistant state | Interpretation |
+|---|---|---|
+| `0` | `off` | Circuit regulation is off |
+| `1` | `comfort heating` | Comfort-temperature regulation |
+| `2` | `reduced-temperature operation` | Reduced-temperature regulation |
+| `3` | `frost protection` | Protective frost operation |
+| `4` | `off above daytime-reduction outdoor-temperature limit` | Daytime-reduction shutdown threshold, HK-12 |
+| `5` | `off above nighttime-reduction outdoor-temperature limit` | Nighttime-reduction shutdown threshold, HK-13 |
+| `6` | `off above general outdoor-temperature heating limit` | General heating shutdown threshold, HK-11 |
+| `7` | `overtemperature / heat dissipation` | Overtemperature regulation / heat disposal |
+| `8` | `chimney-sweep / emissions-test operation` | Emissions-test regulation |
+| `9` | `residual-heat utilization` | Utilization of remaining heat |
+
+The two enums are independent: Status `1` with Zustand `2` means Automatic mode
+in a reduced-temperature phase; Status `1` with Zustand `6` means Automatic
+mode with heating off above its outdoor-temperature limit. Status `0` can
+coexist with Zustand `3` because Off does not disable frost protection. These
+states report controller regulation, not confirmed pump operation, valve
+position, or physical heat delivery. No climate `hvac_action` is inferred.
+
+**Evidence (firmware 2.7.4):** `HeizkreisBase::internalInitializeChannels`
+(`0x145870`) binds Status channels at offset `0x358` and Zustand at `0x360`.
+`HeizkreisBase::refreshDaqChannels` (`0x1470dc`) writes the current-mode field
+(`0x13c`) to Status and the regulation-state field (`0x180`) to Zustand.
+`HeizkreisState::operator QString` (`0x2405b0`) explicitly names Status codes;
+despite the class name, this enum is the operating mode. Its branch table and
+strings were verified against executable bytes.
+
+Zustand uses the separate `Heizkreis::HeizkreisZustand` enum, set through
+`HeizkreisBase::setHKZustand` (`0x146768`). Named functions establish codes:
+`Heizen` (`0x148d1c`) → 1, `Absenken` (`0x148d50`) → 2, `Frostschutz`
+(`0x148974`) → 3, `Uebertemp` (`0x1487f0`) → 7, `AblaufChimneySweeper`
+(`0x148714`) → 8, and `Restwaerme` (`0x1488d4`) → 9.
+`AblaufWork` (`0x148d84`) calls `Aus` (`0x146d84`) with 0 or with shutdown
+codes 4/5/6, tied respectively to parameters 12/13/11. Critical assignments
+were checked in assembly; these English regulation labels describe code
+behavior rather than claiming an explicit firmware string-conversion table.
+The manufacturer's [Smart-HV 17–23 operating manual](https://www.hargassner.com/wp-content/uploads/2022/08/ba-smart-hv-17-23-de.pdf),
+PDF page 27, corroborates the shutdown-threshold meanings but supplies no
+channel code IDs. This evidence is confirmed for 2.7.4, not independently
+validated across every later firmware.
+
+Both diagnostic sensors preserve their previous raw entity IDs, custom names,
+diagnostic category, and enable/disable preferences. New entities stay disabled
+by default under the additional-diagnostic-channel option. Exact integer-valued
+readings (including equivalent floats) map to text; missing channels, failed
+polls, fractional readings, and undefined codes are unavailable. `channel`
+and `raw_value` attributes expose source readings while available; HA omits
+them when unavailable. There are no units or statistics classes. Numeric-state
+automations must use the new text states or `raw_value` attribute. SDK values
+remain numeric, and no endpoints, polling schedules, writes, regulation,
+or controller-owned expiry behavior change.
+
 ## Availability and migration
 
 The known room-unit −1 sentinel is treated as unavailable, conservatively

@@ -155,7 +155,7 @@ for every channel's scale, units, state codes, or control algorithm**.
 | Targets and heat demand | `TKsoll`, `RL_Soll`, `Hk1Soll`, `HeizkreisAnforderung`, `BoilerAnforderung`, `AnforderungFremdwaerme` | Boiler/return/circuit target-related signals and demand from space heating, DHW, or an external heat source; these are not interchangeable with measured temperatures or parameter names |
 | Buffer/output indications | `Pufferfuellgrad`, `Leistung`, `Leistungsvorgabe` | Buffer-charge and boiler-output-related indications/requests; do not interpret them as a measured liquid level, instantaneous kW, or accumulated energy without validating the scale/algorithm |
 | Actuator-related signals | `Hk1PumpeSoll`, `Boiler1PumpeSoll`, `SzSollRPM`, `saugzug_rpm`, `primaerluftklappe_pos`, `sekundaerluftklappe_pos` | Pump requests, fan target/speed-related values, and air-flap position-related values; a request is not confirmation of physical operation |
-| Combustion, state, and fault signals | `lambda_O2`, `O2Soll`, `KesselZustand`, `Hk1Status`, `Hk1Zustand`, `Boiler1Status`, `Stoerung`, `Wahlschalter` | Oxygen feedback/target-related values and subsystem state/status, fault, or selector codes. The SDK returns raw numbers; HA has a [firmware-evidenced `KesselZustand` presentation map](channel-guide.md#boiler-state-diagnostic), not a general subsystem-state or whole-boiler system-mode decoder |
+| Combustion, state, and fault signals | `lambda_O2`, `O2Soll`, `KesselZustand`, `Hk1Status`, `Hk1Zustand`, `Boiler1Status`, `Stoerung`, `Wahlschalter` | Oxygen feedback/target-related values and subsystem state/status, fault, or selector codes. The SDK returns raw numbers; HA has firmware-evidenced [boiler-state](channel-guide.md#boiler-state-diagnostic) and [circuit mode/regulation-state](channel-guide.md#heating-circuit-operating-mode-and-regulation-state-diagnostics) presentation maps, not a general subsystem-state or whole-boiler system-mode decoder |
 | Module and controller diagnostics | `hka_connected_channel`, `hkm_connected_channel`, `fs_space_remaining`, `sys_mem_used`, `sys_mem_available`, `temperatur_platine`, `spannung_platine` | Expansion-module connection indications, filesystem/memory diagnostics, and board-monitor signals; not a complete hardware inventory or a validated overall-health assessment |
 
 Use `channels[name]`, `.get()`, `.items()`, or `.to_dict()`. Names are discovered
@@ -596,6 +596,11 @@ In the reviewed firmware, `Hk1Status`/`Hk2Status`/`HkAStatus` carry circuit-mode
 IDs; `Hk*Zustand` uses a different runtime state enumeration. Channel reads
 still return raw numbers, not automatic enum conversion or an authoritative
 whole-boiler mode decoder.
+HA's optional diagnostic sensors decode these exact channels separately as
+operating mode and regulation state; see the
+[circuit diagnostic mappings](channel-guide.md#heating-circuit-operating-mode-and-regulation-state-diagnostics)
+for the numeric meanings, firmware evidence, and compatibility limits. This
+presentation does not alter the SDK's channel snapshots or climate-mode logic.
 
 `CIRCUIT_MODE_WRITES` lists the three mode exceptions. With the six circuit
 programs below, `PARAMETER_WRITES` is the complete 26-name union; explicit

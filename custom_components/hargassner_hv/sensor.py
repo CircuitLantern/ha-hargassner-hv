@@ -39,6 +39,37 @@ BOILER_STATES = {
     13: "ember-maintenance lockout",
 }
 
+# Status is HeizkreisState (selected runtime mode); Zustand is the separate
+# Heizkreis::HeizkreisZustand regulation enum. Evidence: docs/channel-guide.md.
+HEATING_CIRCUIT_MODES = {
+    0: "off",
+    1: "automatic",
+    2: "continuous reduced-temperature operation",
+    3: "continuous comfort heating",
+    4: "one-time comfort heating",
+    5: "one-time reduced-temperature operation",
+}
+HEATING_CIRCUIT_STATES = {
+    0: "off",
+    1: "comfort heating",
+    2: "reduced-temperature operation",
+    3: "frost protection",
+    4: "off above daytime-reduction outdoor-temperature limit",
+    5: "off above nighttime-reduction outdoor-temperature limit",
+    6: "off above general outdoor-temperature heating limit",
+    7: "overtemperature / heat dissipation",
+    8: "chimney-sweep / emissions-test operation",
+    9: "residual-heat utilization",
+}
+HEATING_CIRCUIT_DIAGNOSTICS = {
+    f"Hk{circuit}{suffix}": (f"Heating circuit {circuit} {label}", meanings)
+    for circuit in ("1", "2", "A")
+    for suffix, label, meanings in (
+        ("Status", "operating mode", HEATING_CIRCUIT_MODES),
+        ("Zustand", "regulation state", HEATING_CIRCUIT_STATES),
+    )
+}
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     runtime = entry.runtime_data
@@ -84,6 +115,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
                         entities.append(DoorContactSensor(entry))
                     elif name == "KesselZustand":
                         entities.append(BoilerStateSensor(entry))
+                    elif name in HEATING_CIRCUIT_DIAGNOSTICS:
+                        entities.append(HeatingCircuitDiagnosticSensor(entry, name))
                     else:
                         entities.append(RawChannelSensor(entry, name))
         if entities:
@@ -224,6 +257,30 @@ class BoilerStateSensor(RawChannelSensor):
     @property
     def native_value(self):
         return BOILER_STATES.get(super().native_value) if self.available else None
+
+    @property
+    def extra_state_attributes(self):
+        return {"channel": self.channel, "raw_value": super().native_value}
+
+
+class HeatingCircuitDiagnosticSensor(RawChannelSensor):
+    """Exact-name runtime mode/state decoding, independent of climate controls."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_icon = "mdi:radiator"
+
+    def __init__(self, entry, name):
+        super().__init__(entry, name)
+        self._attr_name, self.meanings = HEATING_CIRCUIT_DIAGNOSTICS[name]
+        self._attr_options = list(self.meanings.values())
+
+    @property
+    def available(self):
+        return super().available and super().native_value in self.meanings
+
+    @property
+    def native_value(self):
+        return self.meanings.get(super().native_value) if self.available else None
 
     @property
     def extra_state_attributes(self):
