@@ -11,6 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import CONTROL_LABELS, DOMAIN
 from .entity import HargassnerEntity, HargassnerParameterEntity
 from .hvclient import (
+    CHANNEL_MEANINGS,
     CIRCUIT_SCHEDULE_WRITES,
     NUMERIC_USER_WRITES,
     Choice,
@@ -19,56 +20,6 @@ from .hvclient import (
 from .telemetry import OPERATIONAL_CHANNELS, OperationalChannel
 
 PARALLEL_UPDATES = 0
-
-# KesselState::operator QString in firmware 2.7.4; see docs/channel-guide.md.
-# Shared enum membership does not imply every state is used by Smart HV.
-BOILER_STATES = {
-    0: "off / ready",
-    1: "ignition preparation",
-    2: "ignition monitoring",
-    3: "ignition pause",
-    4: "transition to power burning",
-    5: "startup / heating up",
-    6: "power burning",
-    7: "ember maintenance",
-    8: "burnout",
-    9: "de-ashing",
-    10: "residual heat",
-    11: "manual",
-    12: "overtemperature",
-    13: "ember-maintenance lockout",
-}
-
-# Status is HeizkreisState (selected runtime mode); Zustand is the separate
-# Heizkreis::HeizkreisZustand regulation enum. Evidence: docs/channel-guide.md.
-HEATING_CIRCUIT_MODES = {
-    0: "off",
-    1: "automatic",
-    2: "continuous reduced-temperature operation",
-    3: "continuous comfort heating",
-    4: "one-time comfort heating",
-    5: "one-time reduced-temperature operation",
-}
-HEATING_CIRCUIT_STATES = {
-    0: "off",
-    1: "comfort heating",
-    2: "reduced-temperature operation",
-    3: "frost protection",
-    4: "off above daytime-reduction outdoor-temperature limit",
-    5: "off above nighttime-reduction outdoor-temperature limit",
-    6: "off above general outdoor-temperature heating limit",
-    7: "overtemperature / heat dissipation",
-    8: "chimney-sweep / emissions-test operation",
-    9: "residual-heat utilization",
-}
-HEATING_CIRCUIT_DIAGNOSTICS = {
-    f"Hk{circuit}{suffix}": (f"Heating circuit {circuit} {label}", meanings)
-    for circuit in ("1", "2", "A")
-    for suffix, label, meanings in (
-        ("Status", "operating mode", HEATING_CIRCUIT_MODES),
-        ("Zustand", "regulation state", HEATING_CIRCUIT_STATES),
-    )
-}
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -115,7 +66,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
                         entities.append(DoorContactSensor(entry))
                     elif name == "KesselZustand":
                         entities.append(BoilerStateSensor(entry))
-                    elif name in HEATING_CIRCUIT_DIAGNOSTICS:
+                    elif name in CHANNEL_MEANINGS:
                         entities.append(HeatingCircuitDiagnosticSensor(entry, name))
                     else:
                         entities.append(RawChannelSensor(entry, name))
@@ -212,79 +163,55 @@ class RawChannelSensor(HargassnerEntity, SensorEntity):
         return self.coordinator.data.get(self.channel) if self.coordinator.data is not None else None
 
 
-class DoorContactSensor(RawChannelSensor):
-    """Observed door-contact polarity; retain the existing diagnostic identity."""
+class EnumChannelSensor(RawChannelSensor):
+    """SDK-defined meanings with HA-specific availability and raw identity."""
 
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["open", "closed"]
-    _attr_icon = "mdi:door"
 
-    def __init__(self, entry):
-        super().__init__(entry, "tuerkontakt")
-        self._attr_name = "Boiler door contact"
+    def __init__(self, entry, name):
+        super().__init__(entry, name)
+        self.meaning = CHANNEL_MEANINGS[name]
+        self._attr_name = self.meaning.label
+        self._attr_options = list(self.meaning.labels.values())
 
     @property
     def available(self):
-        return super().available and super().native_value in (0, 1)
+        return super().available and self.meaning.decode(super().native_value) is not None
 
     @property
     def native_value(self):
         if not self.available:
             return None
-        # Live-device observation, not a documented HTTP API polarity contract.
-        return "open" if super().native_value == 0 else "closed"
+        decoded = self.meaning.decode(super().native_value)
+        return self.meaning.labels[decoded] if decoded is not None else None
 
     @property
     def extra_state_attributes(self):
         return {"channel": self.channel, "raw_value": super().native_value}
 
 
-class BoilerStateSensor(RawChannelSensor):
+class DoorContactSensor(EnumChannelSensor):
+    """Observation-based door-contact interpretation, not a safety guarantee."""
+
+    _attr_icon = "mdi:door"
+
+    def __init__(self, entry):
+        super().__init__(entry, "tuerkontakt")
+
+
+class BoilerStateSensor(EnumChannelSensor):
     """Firmware-defined combustion states; preserve the raw diagnostic identity."""
 
-    _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = list(BOILER_STATES.values())
     _attr_icon = "mdi:fire"
 
     def __init__(self, entry):
         super().__init__(entry, "KesselZustand")
-        self._attr_name = "Boiler state"
-
-    @property
-    def available(self):
-        return super().available and super().native_value in BOILER_STATES
-
-    @property
-    def native_value(self):
-        return BOILER_STATES.get(super().native_value) if self.available else None
-
-    @property
-    def extra_state_attributes(self):
-        return {"channel": self.channel, "raw_value": super().native_value}
 
 
-class HeatingCircuitDiagnosticSensor(RawChannelSensor):
+class HeatingCircuitDiagnosticSensor(EnumChannelSensor):
     """Exact-name runtime mode/state decoding, independent of climate controls."""
 
-    _attr_device_class = SensorDeviceClass.ENUM
     _attr_icon = "mdi:radiator"
-
-    def __init__(self, entry, name):
-        super().__init__(entry, name)
-        self._attr_name, self.meanings = HEATING_CIRCUIT_DIAGNOSTICS[name]
-        self._attr_options = list(self.meanings.values())
-
-    @property
-    def available(self):
-        return super().available and super().native_value in self.meanings
-
-    @property
-    def native_value(self):
-        return self.meanings.get(super().native_value) if self.available else None
-
-    @property
-    def extra_state_attributes(self):
-        return {"channel": self.channel, "raw_value": super().native_value}
 
 
 class OperationalChannelSensor(HargassnerEntity, SensorEntity):

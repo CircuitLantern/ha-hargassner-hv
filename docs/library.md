@@ -155,7 +155,7 @@ for every channel's scale, units, state codes, or control algorithm**.
 | Targets and heat demand | `TKsoll`, `RL_Soll`, `Hk1Soll`, `HeizkreisAnforderung`, `BoilerAnforderung`, `AnforderungFremdwaerme` | Boiler/return/circuit target-related signals and demand from space heating, DHW, or an external heat source; these are not interchangeable with measured temperatures or parameter names |
 | Buffer/output indications | `Pufferfuellgrad`, `Leistung`, `Leistungsvorgabe` | Buffer-charge and boiler-output-related indications/requests; do not interpret them as a measured liquid level, instantaneous kW, or accumulated energy without validating the scale/algorithm |
 | Actuator-related signals | `Hk1PumpeSoll`, `Boiler1PumpeSoll`, `SzSollRPM`, `saugzug_rpm`, `primaerluftklappe_pos`, `sekundaerluftklappe_pos` | Pump requests, fan target/speed-related values, and air-flap position-related values; a request is not confirmation of physical operation |
-| Combustion, state, and fault signals | `lambda_O2`, `O2Soll`, `KesselZustand`, `Hk1Status`, `Hk1Zustand`, `Boiler1Status`, `Stoerung`, `Wahlschalter` | Oxygen feedback/target-related values and subsystem state/status, fault, or selector codes. The SDK returns raw numbers; HA has firmware-evidenced [boiler-state](channel-guide.md#boiler-state-diagnostic) and [circuit mode/regulation-state](channel-guide.md#heating-circuit-operating-mode-and-regulation-state-diagnostics) presentation maps, not a general subsystem-state or whole-boiler system-mode decoder |
+| Combustion, state, and fault signals | `lambda_O2`, `O2Soll`, `KesselZustand`, `Hk1Status`, `Hk1Zustand`, `Boiler1Status`, `Stoerung`, `Wahlschalter` | Oxygen feedback/target-related values and subsystem state/status, fault, or selector codes. Snapshots stay numeric; explicit SDK helpers decode selected boiler/circuit states, not arbitrary subsystem states or whole-boiler operating modes |
 | Module and controller diagnostics | `hka_connected_channel`, `hkm_connected_channel`, `fs_space_remaining`, `sys_mem_used`, `sys_mem_available`, `temperatur_platine`, `spannung_platine` | Expansion-module connection indications, filesystem/memory diagnostics, and board-monitor signals; not a complete hardware inventory or a validated overall-health assessment |
 
 Use `channels[name]`, `.get()`, `.items()`, or `.to_dict()`. Names are discovered
@@ -166,8 +166,10 @@ its reading is valid. An empty map is a valid empty snapshot.
 
 The library preserves finite int/float values, including zero and integer-valued
 states/counters. It rejects JSON booleans, strings, nulls, and non-finite values
-rather than guessing conversions. It does not interpret unavailable/sentinel
-values, map numeric codes to modes, or certify sensor validity. In particular,
+rather than guessing conversions. Snapshot parsing does not interpret
+unavailable/sentinel values, map numeric codes to modes, or certify sensor validity.
+Optional offline helpers below decode only the exact reviewed channel names.
+In particular,
 do not assume that a `Soll`/request signal is measured feedback or that a
 channel name is the HTTP parameter identifier for a related setting.
 
@@ -178,6 +180,78 @@ or stored history, and does not guarantee that all values were sampled together.
 Channels have no parameter-catalog USER/security-level classification and are
 not filtered by it. **Parameter** reads are limited to USER entries plus the
 six PLUMBER heating-curve and three DEVELOPER circuit-mode exceptions below.
+
+### Explicit channel-state decoding (offline)
+
+Raw `ChannelSnapshot` values and `hvctl channels` JSON remain numeric. Other
+clients can opt into the shared definitions without Home Assistant or extra
+network requests:
+
+```python
+from hvclient import (
+    BoilerState,
+    HeatingCircuitMode,
+    decode_channel_value,
+    get_channel_meaning,
+)
+
+# `channels` is the unchanged snapshot returned by async_get_channels().
+raw = channels.get("KesselZustand")
+state = decode_channel_value("KesselZustand", raw)
+meaning = get_channel_meaning("KesselZustand")
+if state is not None and meaning is not None:
+    print(int(state), state.name, meaning.labels[state])
+    # For raw 6/6.0: 6 POWER_BURNING power burning
+    print(meaning.evidence, meaning.verified_firmware)  # firmware 2.7.4
+
+assert decode_channel_value("KesselZustand", 6.0) is BoilerState.POWER_BURNING
+assert decode_channel_value("Hk1Status", 1) is HeatingCircuitMode.AUTOMATIC
+assert decode_channel_value("KesselZustand", 253) is None
+assert decode_channel_value("Hk3Status", 1) is None  # No name-pattern guessing.
+```
+
+Public APIs:
+
+- `BoilerState`: the fourteen shared combustion-state codes, not a global
+  operating-mode selector or evidence that every code occurs on Smart HV.
+- Existing `HeatingCircuitMode`: the six `HkXStatus` runtime-mode codes.
+- `HeatingCircuitRegulationState`: the ten distinct `HkXZustand` codes.
+- `DoorContactState`: `OPEN=0`, `CLOSED=1`, **observation-based polarity only**.
+- `CHANNEL_MEANINGS`: immutable exact-name registry covering `KesselZustand`,
+  `tuerkontakt`, and Status/Zustand for circuits 1, 2, and A.
+- `get_channel_meaning(name)`: a frozen `ChannelMeaning`, or `None` for an
+  unmapped name. Fields are `name`, English `label`, `enum_type`, immutable
+  code-to-text `labels`, `evidence`, `verified_firmware`, and `description`.
+- `decode_channel_value(name, value)` or `meaning.decode(value)`: a member of
+  the channel's enum, or `None` for unknown codes/invalid inputs. `ChannelState`
+  is the exported union type of the four enum families.
+
+Decoding accepts integers, finite integer-valued floats, and members of the
+**correct** enum family. It does not coerce booleans, numeric strings, dictionaries,
+fractional floats, decimals, non-finite numbers, or another family's enum with an
+overlapping ID. Use `state is not None`, not truthiness: code zero is valid.
+Callers retain unknown raw values; decoding does not invalidate or mutate the
+snapshot. Direct enum construction is normal Python `IntEnum` behavior; use the
+helpers for the stricter input checks. Read decoding does not relax write
+validation: mode writes still reject floats and unrelated enum families, and
+all write opt-ins remain required.
+
+The boiler/circuit evidence is firmware **2.7.4**, not automatic firmware
+negotiation or a guarantee across versions. Door polarity is a live-device
+observation on **2026-11-20**, with firmware unspecified; its metadata reports
+`evidence="live_observation"` and `verified_firmware=None`. Explicitly choosing
+that helper does not turn the observation into an independent HTTP contract.
+An open-contact report can also indicate a disconnected plug or broken cable.
+These helpers do not certify physical safety, heat delivery, channel freshness,
+or installed hardware. One-time expiry and regulation remain controller-owned.
+
+HA consumes the same SDK definitions, keeping entity presentation, availability,
+and migration in the adapter. Full tables and evidence are in the
+[door-contact](channel-guide.md#door-contact-diagnostic),
+[boiler-state](channel-guide.md#boiler-state-diagnostic), and
+[circuit diagnostic](channel-guide.md#heating-circuit-operating-mode-and-regulation-state-diagnostics)
+sections of the channel guide. No SDK PyPI publication is required to use the
+repository's standalone SDK package or the bundled integration.
 
 ### Board diagnostics: controller-electronics readings (`/pcb`)
 
@@ -596,7 +670,7 @@ In the reviewed firmware, `Hk1Status`/`Hk2Status`/`HkAStatus` carry circuit-mode
 IDs; `Hk*Zustand` uses a different runtime state enumeration. Channel reads
 still return raw numbers, not automatic enum conversion or an authoritative
 whole-boiler mode decoder.
-HA's optional diagnostic sensors decode these exact channels separately as
+The SDK's explicit helpers and HA's optional diagnostic sensors decode these channels separately as
 operating mode and regulation state; see the
 [circuit diagnostic mappings](channel-guide.md#heating-circuit-operating-mode-and-regulation-state-diagnostics)
 for the numeric meanings, firmware evidence, and compatibility limits. This

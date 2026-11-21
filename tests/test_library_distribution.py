@@ -64,7 +64,9 @@ def test_standalone_sdk_import_does_not_load_home_assistant():
         [sys.executable, "-I", "-B", "-c",
          "import sys; import hvclient; assert not any(name == 'homeassistant' or "
          "name.startswith(('homeassistant.', 'custom_components.')) for name in sys.modules); "
-         "assert hvclient.AsyncHargassnerClient.__module__ == 'hvclient.client'"],
+         "assert hvclient.AsyncHargassnerClient.__module__ == 'hvclient.client'; "
+         "assert hvclient.decode_channel_value('KesselZustand', 6.0) is hvclient.BoilerState.POWER_BURNING; "
+         "assert hvclient.get_channel_meaning('Hk1Status').enum_type is hvclient.HeatingCircuitMode"],
         check=False, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr

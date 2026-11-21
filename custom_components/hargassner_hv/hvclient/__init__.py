@@ -2,6 +2,16 @@
 
 """Async telemetry, USER parameters and reviewed curve/mode controls; no HA dependency."""
 
+from .channels import (
+    CHANNEL_MEANINGS,
+    BoilerState,
+    ChannelMeaning,
+    ChannelState,
+    DoorContactState,
+    HeatingCircuitRegulationState,
+    decode_channel_value,
+    get_channel_meaning,
+)
 from .client import AsyncHargassnerClient
 from .errors import (
     AuthenticationError,
@@ -60,6 +70,7 @@ from .schedules import (
 )
 
 __all__ = [
+    "CHANNEL_MEANINGS",
     "CIRCUIT_MODE_PARAMETERS",
     "CIRCUIT_MODE_WRITES",
     "CIRCUIT_SCHEDULE_PARAMETERS",
@@ -72,7 +83,10 @@ __all__ = [
     "WEEKLY_SCHEDULE_LIMITS",
     "AsyncHargassnerClient",
     "AuthenticationError",
+    "BoilerState",
+    "ChannelMeaning",
     "ChannelSnapshot",
+    "ChannelState",
     "Choice",
     "CircuitProgram",
     "CircuitPrograms",
@@ -80,9 +94,11 @@ __all__ = [
     "ControllerDateTime",
     "CooldownError",
     "DailySchedule",
+    "DoorContactState",
     "HTTPError",
     "HargassnerError",
     "HeatingCircuitMode",
+    "HeatingCircuitRegulationState",
     "Parameter",
     "ParameterAccessError",
     "ParameterMeaning",
@@ -104,6 +120,8 @@ __all__ = [
     "WritePreview",
     "WriteResult",
     "WriteVerificationError",
+    "decode_channel_value",
+    "get_channel_meaning",
     "get_parameter_meaning",
     "get_schedule_limits",
 ]

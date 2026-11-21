@@ -7,6 +7,14 @@ The HA adapter maintains an exact-name presentation map in
 numeric snapshot without guessing units or implementing a second transport.
 Unknown channels remain optional diagnostics; channel names do not grant writes.
 
+Reviewed state-code definitions and English labels are single-sourced in the
+dependency-free SDK module `hvclient/channels.py`. The adapter uses them for
+the enum diagnostics below while retaining HA-specific availability and entity
+migration. Standalone clients can explicitly use `decode_channel_value` and
+`get_channel_meaning`; see [SDK decoding helpers](library.md#explicit-channel-state-decoding-offline).
+Raw snapshots remain numeric, and the helpers expose firmware versus live-
+observation provenance without claiming universal compatibility.
+
 ## Curated readings
 
 | Channel keys | Interpretation | Native unit | Statistics |
